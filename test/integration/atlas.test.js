@@ -1,0 +1,199 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { loadConfig } from '../../src/config.js';
+import { connect, serverInfo, COLL } from '../../src/db.js';
+import { getProfile } from '../../src/profiles/index.js';
+import { resetDemo, setupDemo } from '../../src/services/setup.js';
+import { triggerSample } from '../../src/services/events.js';
+import { applyExceptionAction, exceptionQueue, AUDIT_MAX } from '../../src/services/exceptions.js';
+import { entityOverview } from '../../src/services/overview.js';
+import { telemetryView } from '../../src/services/telemetry.js';
+import { insertInvalidSample, repairInvalid, removeInvalid, transitionStage, findInvalidEvents } from '../../src/services/validation.js';
+import { searchStatus } from '../../src/services/search.js';
+import { ChangeFeed } from '../../src/services/changeFeed.js';
+import { reanchorDemo, demoClockAge } from '../../src/services/reanchor.js';
+import { entityPipeline } from '../../src/services/overview.js';
+import { byIdempotencyKey, idempotencyKey } from '../../src/domain/documents.js';
+
+// Runs against a real Atlas cluster only. No mocks, no local substitute.
+const skip = process.env.MONGODB_URI ? false : 'MONGODB_URI not set: Atlas integration tests skipped (see README "Testing")';
+const profile = getProfile('retail');
+let client;
+let db;
+let info;
+
+before(async () => {
+  if (skip) return;
+  const config = loadConfig({ ...process.env, DEMO_DB_NAME: process.env.TEST_DB_NAME || 'atlas_control_tower_demo_test' });
+  ({ client, db } = await connect(config));
+  info = await serverInfo(db);
+  await resetDemo(db, db.databaseName, { withSearch: false });
+});
+after(async () => client?.close());
+
+test('setup creates collections, a time-series telemetry collection, and seeds every profile', { skip }, async () => {
+  const colls = Object.fromEntries((await db.listCollections().toArray()).map((c) => [c.name, c.type]));
+  assert.equal(colls[COLL.telemetry], 'timeseries');
+  assert.equal(await db.collection(COLL.entities).countDocuments(), 3);
+  const again = await resetDemo(db, db.databaseName, { withSearch: false });
+  assert.equal(await db.collection(COLL.entities).countDocuments(), 3, 'reset + reseed stays idempotent');
+  assert.ok(again.dropped.includes(COLL.events));
+});
+
+test('re-running setup on seeded data is a no-op: seed events are not counted as duplicates', { skip }, async () => {
+  const dupTotal = async () =>
+    (await db.collection(COLL.events).aggregate([{ $group: { _id: null, n: { $sum: { $ifNull: ['$reliability.duplicateCount', 0] } } } }]).toArray())[0].n;
+  const [events, exceptions, before] = [await db.collection(COLL.events).countDocuments(), await db.collection(COLL.exceptions).countDocuments(), await dupTotal()];
+  const res = await setupDemo(db, { withSearch: false });
+  assert.ok(res.seeds.every((s) => s.events.already_present === getProfile(s.profile).seedEvents.length && !s.events.deduplicated));
+  assert.equal(await dupTotal(), before);
+  assert.equal(await db.collection(COLL.events).countDocuments(), events);
+  assert.equal(await db.collection(COLL.exceptions).countDocuments(), exceptions);
+});
+
+test('duplicate event is suppressed and does not create a second exception', { skip }, async () => {
+  const first = await triggerSample(db, profile, 'delay_alert');
+  assert.equal(first.exception.outcome, 'opened');
+  const second = await triggerSample(db, profile, 'delay_alert');
+  assert.equal(second.outcome, 'deduplicated');
+  assert.equal(second.event.reliability.duplicateCount, 1);
+  const sameCategory = await triggerSample(db, profile, 'delay_store_report');
+  assert.equal(sameCategory.exception.outcome, 'updated');
+  const excs = await db.collection(COLL.exceptions).find({ profile: 'retail', category: 'delivery_delay' }).toArray();
+  assert.equal(excs.length, 1);
+  assert.equal(excs[0].relatedEventIds.length, 2);
+});
+
+test('late out-of-order event is labeled and does not move the milestone timeline backward', { skip }, async () => {
+  await triggerSample(db, profile, 'arrived_dc');
+  const before = await entityOverview(db, profile);
+  const res = await triggerSample(db, profile, 'late_departure_scan');
+  assert.equal(res.outcome, 'out_of_order');
+  assert.ok(res.event.reliability.flags.includes('late'));
+  const afterOv = await entityOverview(db, profile);
+  assert.equal(afterOv.assessment.currentStatus.milestoneId, before.assessment.currentStatus.milestoneId);
+  const departed = afterOv.assessment.milestones.find((m) => m.id === 'departed');
+  assert.equal(departed.reports, 2);
+});
+
+test('exception workflow: acknowledge, assign, resolve with audit trail', { skip }, async () => {
+  const [top] = await exceptionQueue(db, profile);
+  await applyExceptionAction(db, top.exceptionId, { action: 'acknowledge', operator: 'tester' });
+  await applyExceptionAction(db, top.exceptionId, { action: 'assign', owner: 'planner.a', operator: 'tester' });
+  await assert.rejects(applyExceptionAction(db, top.exceptionId, { action: 'resolve', note: '' }), /resolution note/);
+  const done = await applyExceptionAction(db, top.exceptionId, { action: 'resolve', note: 'Rerouted', operator: 'tester' });
+  assert.equal(done.status, 'resolved');
+  assert.deepEqual(done.audit.slice(-3).map((a) => a.action), ['acknowledge', 'assign', 'resolve']);
+
+  // The embedded audit array stays bounded: the newest AUDIT_MAX entries are kept.
+  let last;
+  for (let i = 1; i <= AUDIT_MAX + 5; i++) {
+    last = await applyExceptionAction(db, top.exceptionId, { action: 'note', note: `follow-up ${i}`, operator: 'tester' });
+  }
+  assert.equal(last.audit.length, AUDIT_MAX);
+  assert.equal(last.audit.at(-1).note, `follow-up ${AUDIT_MAX + 5}`);
+  assert.equal(last.audit[0].note, 'follow-up 6');
+});
+
+test('telemetry aggregation reports out-of-range readings from the time-series collection', { skip }, async () => {
+  const t = await telemetryView(db, profile, { hours: 12 });
+  assert.ok(t.stats.count > 0);
+  assert.ok(t.stats.outOfRange >= 2);
+  assert.ok(t.excursions.every((e) => e.value > t.range.max || e.value < t.range.min));
+});
+
+test('re-anchoring moves the demo clock while preserving every relative gap', { skip }, async () => {
+  const snapshot = async (now) => {
+    const ov = await entityOverview(db, profile, now);
+    const queue = await exceptionQueue(db, profile, now);
+    return {
+      milestones: ov.assessment.milestones.map((m) => `${m.id}:${m.status}:${m.varianceMin}`),
+      sla: queue.map((e) => `${e.exceptionId}:${e.priority.minutesToSla}`).sort(),
+      invalid: (await findInvalidEvents(db)).count,
+    };
+  };
+  assert.equal((await transitionStage(db, 'enforce', info.gate)).stage, 'enforce');
+  const t0 = new Date();
+  const anchor = (await db.collection(COLL.entities).findOne({ profile: profile.id })).anchorAt;
+  // Re-anchoring preserves gaps relative to the anchor, so compare snapshots taken at the same anchor offset.
+  const offsetMs = t0 - anchor;
+  const original = await snapshot(t0);
+  assert.ok(original.invalid > 0, 'invalid legacy records must be present so the bypass path is exercised');
+  const past = new Date(t0.getTime() - 3 * 3600000);
+  await reanchorDemo(db, past);
+  assert.equal(await demoClockAge(db, t0), 180);
+  const drifted = await snapshot(t0);
+  assert.notDeepEqual(drifted.milestones, original.milestones, 'a 3 h old anchor should look worse');
+  const report = await reanchorDemo(db, t0);
+  assert.equal(report.find((r) => r.profile === 'retail').shiftedMin, 180);
+  assert.deepEqual(await snapshot(new Date(t0.getTime() + offsetMs)), original);
+  assert.ok((await telemetryView(db, profile, { hours: 8 }, t0)).stats.count > 0);
+  assert.equal((await reanchorDemo(db, t0)).every((r) => r.skipped === 'already current'), true);
+  assert.equal((await transitionStage(db, 'flexible', info.gate)).stage, 'flexible');
+});
+
+test('validation stages: observe accepts, enforce rejects, repair and remove clear invalid records', { skip }, async () => {
+  assert.equal((await transitionStage(db, 'observe', info.gate)).stage, 'observe');
+  assert.equal((await insertInvalidSample(db, profile, 'legacy_string_time')).ok, true);
+  assert.equal((await transitionStage(db, 'enforce', info.gate)).stage, 'enforce');
+  const rejected = await insertInvalidSample(db, profile, 'legacy_missing_entity');
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.error.code, 121);
+  for (const d of (await findInvalidEvents(db)).docs) {
+    const r = await repairInvalid(db, d._id);
+    if (!r.ok) await removeInvalid(db, d._id);
+  }
+  assert.equal((await findInvalidEvents(db)).count, 0);
+});
+
+test('constraint stage follows the server version gate', { skip }, async () => {
+  const res = await transitionStage(db, 'constraint', info.gate);
+  if (!info.gate.supported) {
+    assert.equal(res.ok, false);
+    assert.match(res.error.message, /9\.0/);
+    return;
+  }
+  assert.equal(res.stage, 'constraint', JSON.stringify(res.error));
+  assert.equal((await insertInvalidSample(db, profile, 'legacy_missing_entity')).ok, false);
+  assert.equal((await transitionStage(db, 'flexible', info.gate)).stage, 'flexible');
+});
+
+test('change stream delivers inserts to the feed', { skip }, async () => {
+  const feed = new ChangeFeed(db).start();
+  try {
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('change stream did not become live')), 15000);
+      feed.on('status', (s) => s.state === 'live' && (clearTimeout(t), resolve()));
+    });
+    const got = new Promise((resolve) => feed.on('change', (c) => c.coll === COLL.events && c.op === 'insert' && resolve(c)));
+    await triggerSample(db, profile, 'out_for_delivery');
+    const change = await Promise.race([got, new Promise((_, r) => setTimeout(() => r(new Error('no change event')), 15000))]);
+    assert.equal(change.profile, 'retail');
+  } finally {
+    await feed.stop();
+  }
+});
+
+test('duplicate lookup and overview exception join use indexes, not collection scans', { skip }, async () => {
+  const stages = (node, acc = []) => {
+    if (!node) return acc;
+    acc.push(node.stage + (node.indexName ? `:${node.indexName}` : ''));
+    stages(node.inputStage, acc);
+    for (const c of node.inputStages ?? []) stages(c, acc);
+    return acc;
+  };
+  const key = idempotencyKey(profile.samples[0].source, profile.samples[0].sourceEventId);
+  const ex = await db.collection(COLL.events).find(byIdempotencyKey(key)).explain('queryPlanner');
+  const plan = stages(ex.queryPlanner.winningPlan.queryPlan ?? ex.queryPlanner.winningPlan);
+  assert.ok(plan.some((s) => s.endsWith(':idempotencyKey_unique')), plan.join(' <- '));
+  const ov = await db.collection(COLL.entities).aggregate(entityPipeline(profile)).explain('executionStats');
+  const joins = ov.stages.filter((s) => s.$lookup);
+  for (const j of joins) assert.equal(j.collectionScans, 0, `$lookup into ${j.$lookup.from} scanned the collection`);
+  assert.ok(joins.find((j) => j.$lookup.from === COLL.exceptions).indexesUsed.includes('entity_status'));
+});
+
+test('search status reports index state without throwing', { skip }, async () => {
+  const s = await searchStatus(db);
+  assert.equal(s.indexes.length, 2);
+  assert.equal(typeof s.ready, 'boolean');
+});

@@ -1,0 +1,114 @@
+import { INDEXES } from './db.js';
+import { getProfile, PROFILE_IDS, profileSummary, PROFILES } from './profiles/index.js';
+import { WorkflowError } from './domain/rules.js';
+import { invalidDocumentsFilter } from './domain/schema.js';
+import { triggerSample, timeline, reliabilitySummary, validProbeEvent } from './services/events.js';
+import { applyExceptionAction, exceptionQueue, exceptionSummary } from './services/exceptions.js';
+import { entityOverview } from './services/overview.js';
+import { telemetryView, addReading } from './services/telemetry.js';
+import { createSearchIndexes, runSearch, searchStatus, SearchUnavailableError, SEARCH_INDEXES } from './services/search.js';
+import { insertInvalidSample, insertValidEvent, removeInvalid, repairInvalid, transitionStage, validationState } from './services/validation.js';
+import { cachedIsInitialized, resetDemo, setupDemo } from './services/setup.js';
+import { reanchorDemo } from './services/reanchor.js';
+
+export class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
+
+// Route table: "METHOD /path" -> handler(ctx). ctx = { app, db, profile, query, body, params }.
+export const routes = {
+  'GET /api/status': async ({ app }) => app.status(),
+  'POST /api/connect': async ({ app }) => {
+    await app.ensureConnected();
+    return app.status();
+  },
+  'GET /api/profiles': async ({ app }) => ({
+    defaultProfile: app.config.defaultProfile,
+    profiles: PROFILE_IDS.map((id) => profileSummary(PROFILES[id])),
+    indexes: INDEXES.map(({ coll, key, options, reason }) => ({ coll, key, name: options.name, unique: !!options.unique, reason })),
+    searchIndexes: SEARCH_INDEXES,
+  }),
+  'POST /api/setup': async ({ db }) => setupDemo(db),
+  'POST /api/reset': async ({ db, body }) => resetDemo(db, body.confirm),
+  'POST /api/reanchor': async ({ db }) => ({ profiles: await reanchorDemo(db) }),
+
+  'GET /api/overview': async ({ db, profile }) => {
+    const [overview, reliability, exceptions] = await Promise.all([
+      entityOverview(db, profile),
+      reliabilitySummary(db, profile),
+      exceptionSummary(db, profile),
+    ]);
+    if (!overview) throw new HttpError(404, 'Demo data not found for this profile. Initialize the demo database first.');
+    return { ...overview, reliability, exceptionSummary: exceptions };
+  },
+  'GET /api/timeline': async ({ db, profile }) => ({ events: await timeline(db, profile, invalidDocumentsFilter()) }),
+  'POST /api/events/sample': async ({ db, profile, body }) => triggerSample(db, profile, body.sampleId),
+
+  'GET /api/exceptions': async ({ db, profile }) => ({ queue: await exceptionQueue(db, profile), rules: profile.priority }),
+  'POST /api/exceptions/:id/action': async ({ db, params, body }) => applyExceptionAction(db, params.id, body),
+
+  'GET /api/telemetry': async ({ db, profile, query }) =>
+    telemetryView(db, profile, { hours: num(query.hours) ?? 8, min: num(query.min), max: num(query.max) }),
+  'POST /api/telemetry/reading': async ({ db, profile, body }) => addReading(db, profile, body.kind),
+
+  'GET /api/search/status': async ({ db }) => searchStatus(db),
+  'POST /api/search/indexes': async ({ db }) => ({ results: await createSearchIndexes(db), status: await searchStatus(db) }),
+  'GET /api/search': async ({ db, profile, query }) =>
+    runSearch(db, profile, { q: query.q, kind: query.kind, source: query.source || undefined, status: query.status || undefined }),
+
+  'GET /api/validation': async ({ app, db }) => validationState(db, app.info.gate),
+  'POST /api/validation/stage': async ({ app, db, body }) => transitionStage(db, body.stage, app.info.gate),
+  'POST /api/validation/invalid': async ({ db, profile, body }) => insertInvalidSample(db, profile, body.sampleId),
+  'POST /api/validation/valid': async ({ db, profile }) => insertValidEvent(db, profile, validProbeEvent(profile)),
+  'POST /api/validation/repair': async ({ db, body }) => repairInvalid(db, body.id),
+  'POST /api/validation/remove': async ({ db, body }) => removeInvalid(db, body.id),
+};
+
+const NEEDS_NO_DB = new Set(['GET /api/status', 'POST /api/connect', 'GET /api/profiles']);
+const NEEDS_NO_INIT = new Set([...NEEDS_NO_DB, 'POST /api/setup', 'POST /api/reset', 'GET /api/search/status']);
+
+export function matchRoute(method, pathname) {
+  for (const [key, handler] of Object.entries(routes)) {
+    const [m, pattern] = key.split(' ');
+    if (m !== method) continue;
+    const names = [];
+    const re = new RegExp(`^${pattern.replace(/:(\w+)/g, (_, n) => (names.push(n), '([^/]+)'))}$`);
+    const hit = re.exec(pathname);
+    if (hit) return { key, handler, params: Object.fromEntries(names.map((n, i) => [n, decodeURIComponent(hit[i + 1])])) };
+  }
+  return null;
+}
+
+export async function handleApi(app, method, url, body) {
+  const route = matchRoute(method, url.pathname);
+  if (!route) throw new HttpError(404, `No route ${method} ${url.pathname}`);
+  const query = Object.fromEntries(url.searchParams);
+  let profile = null;
+  try {
+    profile = getProfile(query.profile || body.profile || app.config.defaultProfile);
+  } catch (err) {
+    throw new HttpError(400, err.message);
+  }
+  let db = null;
+  if (!NEEDS_NO_DB.has(route.key)) {
+    db = await app.ensureConnected();
+    if (!NEEDS_NO_INIT.has(route.key)) {
+      const init = await cachedIsInitialized(db);
+      if (!init.initialized) throw new HttpError(409, 'The demo database is not initialized. Click "Initialize demo data" or run npm run setup.');
+    }
+  }
+  return route.handler({ app, db, profile, query, body, params: route.params });
+}
+
+export function statusFor(err) {
+  if (err instanceof HttpError) return err.status;
+  if (err instanceof WorkflowError) return 409;
+  if (err instanceof SearchUnavailableError) return 503;
+  if (err?.code === 13 || err?.codeName === 'Unauthorized') return 403;
+  return 500;
+}

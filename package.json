@@ -1,0 +1,26 @@
+{
+  "name": "atlas-control-tower-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Atlas-connected Control Tower demo: exception workflow, milestone risk, and event reliability for retail, healthcare, and manufacturing profiles.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "setup": "node --env-file-if-exists=.env src/cli.js setup",
+    "search:create": "node --env-file-if-exists=.env src/cli.js search-create",
+    "search:status": "node --env-file-if-exists=.env src/cli.js search-status",
+    "check": "node --env-file-if-exists=.env src/cli.js check",
+    "reset": "node --env-file-if-exists=.env src/cli.js reset",
+    "reanchor": "node --env-file-if-exists=.env src/cli.js reanchor",
+    "test": "node --test test/unit/",
+    "test:integration": "node --env-file-if-exists=.env --test --test-concurrency=1 test/integration/"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "mongodb": "^7.8.0"
+  }
+}
