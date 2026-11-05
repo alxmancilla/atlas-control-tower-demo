@@ -1,7 +1,7 @@
 import { $, api, esc, json } from './lib.js';
 import { renderSearchResults, renderSearchStatus, renderResult } from './panels2.js';
-import { renderQueue, renderDetail } from './panels.js';
-import { state, q, refreshAll, refreshValidation, refreshTelemetry, refreshExceptions, selectProfile, showBanner } from './app.js';
+import { renderQueue } from './panels.js';
+import { state, q, refreshAll, refreshValidation, refreshTelemetry, refreshExceptions, selectProfile, showBanner, showDetail } from './app.js';
 
 const errText = (err) => json({ error: err.message, ...(err.data?.codeName ? { codeName: err.data.codeName } : {}) });
 
@@ -76,9 +76,19 @@ export function bindActions() {
     if (!row) return;
     state.selectedId = row.dataset.id;
     renderQueue(state.queue, state.selectedId, $('excSummary').textContent);
-    renderDetail(state.queue.find((x) => x.exceptionId === state.selectedId), state.profile);
+    showDetail();
   });
-  $('exceptionDetail').addEventListener('click', (e) => e.target.dataset.act && guard(e.target, () => exceptionAction(e.target.dataset.act)));
+  $('exceptionDetail').addEventListener('click', (e) => {
+    if (e.target.dataset.act) return guard(e.target, () => exceptionAction(e.target.dataset.act));
+    const idx = e.target.dataset.useResolution;
+    if (idx !== undefined) {
+      const note = state.similar[state.selectedId]?.results?.[Number(idx)]?.resolution?.note;
+      if (note) {
+        $('excNote').value = note;
+        $('excNote').focus();
+      }
+    }
+  });
 
   $('searchForm').addEventListener('submit', (e) => {
     e.preventDefault();

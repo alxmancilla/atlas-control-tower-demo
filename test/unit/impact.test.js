@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { assessImpact, impactSummary } from '../../src/domain/impact.js';
 import { prioritizeException } from '../../src/domain/rules.js';
-import { buildEvent, fillTemplates } from '../../src/domain/documents.js';
+import { buildEvent, buildHistoryException, fillTemplates } from '../../src/domain/documents.js';
+import { SEARCH_INDEXES, similarPipeline } from '../../src/services/search.js';
 import retail from '../../src/profiles/retail.js';
 
 const now = new Date('2026-11-05T12:00:00Z');
@@ -34,6 +35,31 @@ test('business impact adds explained priority points', () => {
   const p = prioritizeException({ ...exc, businessImpact: high }, now, retail.priority);
   assert.equal(p.score, base + retail.priority.businessImpactPoints.high);
   assert.match(p.reasons.join('|'), /business impact high \(0\.8 h short\) \+20/);
+});
+
+test('similar-case query embeds the exception summary and pre-filters to resolved cases in its profile', () => {
+  const exc = { _id: 'X1', summary: 'Missed pickup: carrier no-show', profile: 'retail' };
+  const [vs, proj] = similarPipeline(exc, { limit: 3 });
+  assert.equal(vs.$vectorSearch.index, 'ops_exceptions_similar');
+  assert.equal(vs.$vectorSearch.query, exc.summary);
+  // One extra result so the exception itself can be dropped; Atlas rejects an _id pre-filter here.
+  assert.equal(vs.$vectorSearch.limit, 4);
+  assert.equal(vs.$vectorSearch.numCandidates, 80);
+  assert.deepEqual(vs.$vectorSearch.filter.$and, [{ status: { $eq: 'resolved' } }, { profile: { $eq: 'retail' } }]);
+  assert.deepEqual(proj.$project.score, { $meta: 'vectorSearchScore' });
+  const idx = SEARCH_INDEXES.find((i) => i.name === 'ops_exceptions_similar');
+  assert.equal(idx.type, 'vectorSearch');
+  assert.deepEqual(idx.definition.fields.map((f) => `${f.type}:${f.path}`), ['autoEmbed:summary', 'filter:status', 'filter:profile']);
+});
+
+test('history exceptions are resolved, belong to past entities, and carry a resolution', () => {
+  const h = retail.history[0];
+  const doc = buildHistoryException(retail, h, 0, now);
+  assert.equal(doc.status, 'resolved');
+  assert.notEqual(doc.trackedEntityId, retail.entity.trackedEntityId);
+  assert.equal(doc.resolution.note, h.resolution);
+  assert.match(doc.summary, /^Missed pickup: /);
+  assert.ok(doc.createdAt < now);
 });
 
 test('raw source payloads carry the envelope eventTime in their own format', () => {

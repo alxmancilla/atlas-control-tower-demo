@@ -1,6 +1,6 @@
 import { COLL, INDEXES, collectionInfo, ensureSetup, serverError } from '../db.js';
 import { PROFILES } from '../profiles/index.js';
-import { buildEvent, buildInvalidEvent, buildTrackedEntity, byIdempotencyKey } from '../domain/documents.js';
+import { buildEvent, buildHistoryException, buildInvalidEvent, buildTrackedEntity, byIdempotencyKey } from '../domain/documents.js';
 import { detectStage } from '../domain/schema.js';
 import { ingestEvent } from './events.js';
 import { applyExceptionAction, exceptionKeyFor } from './exceptions.js';
@@ -57,6 +57,13 @@ export async function seedProfile(db, profile, now = new Date()) {
     }
   }
   report.telemetry = await seedTelemetry(db, profile, anchorAt);
+  let historyAdded = 0;
+  for (const [i, h] of (profile.history ?? []).entries()) {
+    const doc = buildHistoryException(profile, h, i, anchorAt);
+    const res = await db.collection(COLL.exceptions).updateOne({ exceptionKey: doc.exceptionKey }, { $setOnInsert: doc }, { upsert: true });
+    historyAdded += res.upsertedCount;
+  }
+  report.history = { added: historyAdded, total: profile.history?.length ?? 0 };
   report.businessImpact = (await recomputeImpact(db, profile))?.level ?? null;
   return report;
 }

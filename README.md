@@ -15,14 +15,15 @@ Three synthetic domain profiles share the same workflow: **retail** (store reple
 - A database user with `readWrite` and `dbAdmin` on the demo database. `collMod` needs `dbAdmin`.
 - Your IP address in Atlas **Network Access**.
 - For the 4th validation stage (`validationLevel: "constraint"`): a cluster on **MongoDB 9.0 or later**. On earlier versions, the stage is disabled in the UI and the reason is shown.
+- For **similar past cases** (Vector Search with Automated Embedding): on M10+ clusters, **storage auto-scaling must be enabled**. Atlas generates the embeddings with the `voyage-4` model; embedding the index and each lookup consume tokens from your organization's free allocation (200M per model, then billed). If the index can't be built, the rest of the demo works and the panel explains why.
 
 ## Setup
 
 ```bash
 npm install
 cp .env.example .env          # set MONGODB_URI (Atlas only; *.mongodb.net is required)
-npm run setup                 # collections, indexes, time-series collection, seed data, Search indexes
-npm run search:status         # wait until both Search indexes report queryable: true
+npm run setup                 # collections, indexes, time-series collection, seed data, Search and Vector Search indexes
+npm run search:status         # wait until the three indexes report queryable: true
 npm start                     # http://localhost:3000
 ```
 
@@ -50,7 +51,7 @@ npm run reanchor
 |---|---|
 | `tracked_entities` | One document per tracked item, with the planned milestones embedded |
 | `operational_events` | Shared envelope (`trackedEntityId`, `eventType`, `eventTime`, `receivedAt`, `source`, `channel`, `sourceEventId`, `idempotencyKey`) plus a flexible `details` object per source, with the original message in `details.raw`, and a computed `reliability` sub-document |
-| `exceptions` | One work item per entity + category (`exceptionKey`), with severity, SLA, owner, related events, a copy of the current business impact, and an embedded audit trail capped at the newest 100 entries (`$push` with `$slice`) |
+| `exceptions` | One work item per entity + category (`exceptionKey`), with severity, SLA, owner, related events, a copy of the current business impact, and an embedded audit trail capped at the newest 100 entries (`$push` with `$slice`). Also holds a synthetic history of resolved cases from earlier shipments (`demo.history`), which the queue excludes and similar-case lookup searches |
 | `inventory_positions` | Stock at a location for an item (on hand, consumption rate), one per `locationId` + `itemRef`; the business-impact join target |
 | `telemetry_readings` | **Time-series** collection (`timeField: ts`, `metaField: meta`) |
 | `demo_state` | The persisted validation stage, its history, and the maintenance lock |
@@ -75,6 +76,7 @@ Index reasons appear in the UI (**Atlas capabilities → Indexes**) and in `src/
 - **Computed pattern with `$lookup`**: the overview pipeline joins `inventory_positions` (by location, with a correlated match on the item), and the business-impact result is stored on write on the tracked entity and on its open exceptions. The exception queue ranks by impact without a join. The stored value is refreshed after every ingested event, after setup and re-anchor, and when it's more than 5 minutes old at read time.
 - **Change streams**: one database-level stream (`src/services/changeFeed.js`) with resume tokens and exponential-backoff reconnection, pushed to the browser over Server-Sent Events. Views refresh from the stream, not from button clicks. The header pill shows `live`, `reconnecting`, or `resuming`. Resume tokens are kept in memory, so they cover network blips while the server runs; after a server restart, the stream starts from "now" and the page reloads its data instead of replaying missed changes.
 - **MongoDB Search**: `$search` with fuzzy matching, highlights, and token filters by profile, source, and status, over event descriptions and notes and over exception summaries and resolution notes. Search stays disabled until Atlas reports both indexes `queryable: true`. The UI then shows MISSING, building, or UNAVAILABLE with the reason. The index definitions are in `SEARCH_INDEXES` in `src/services/search.js`, and you can paste them into the Atlas UI JSON editor if you prefer to create them manually.
+- **Vector Search with Automated Embedding**: the `ops_exceptions_similar` index (`type: "vectorSearch"`) declares `summary` as an `autoEmbed` field with the `voyage-4` model, plus `status` and `profile` filter fields. Atlas generates and maintains the embeddings, including for new and updated exceptions, so the app contains no embedding code. Opening an exception runs `$vectorSearch` with the exception's own summary as the query text, pre-filtered to resolved cases in the same profile, and shows the 3 closest cases with their resolutions. **Use this resolution** copies a past note into the resolve field. Matches are semantic, not keyword-based: "Carrier missed the scheduled pickup window" finds "Tractor never showed at the outbound dock". Note: Atlas rejected an `_id` pre-filter on this index on our cluster, so the lookup requests one extra result and drops the exception itself in code. Results are cached per exception in the page, because every lookup embeds the query text and uses tokens.
 - **Time series**: a `$setWindowFields` moving average, range checks, and excursions. You can change the range in the UI. It is a demo threshold, not a compliance limit. Telemetry is queried on demand because **time-series collections do not support change streams or MongoDB Search**.
 - **Schema validation**, applied to `operational_events` with `collMod`:
   1. **Flexible**: no validator.
@@ -90,7 +92,7 @@ Index reasons appear in the UI (**Atlas capabilities → Indexes**) and in `src/
 2. **Live event flow**: click *Carrier: arrived at cross-dock*. The activity log shows the change-stream insert, then the milestone and timeline refresh. Expand **raw EDI** on the new row: the same collection holds EDI segments, WMS scans, GPS pings, and webhook bodies.
 3. Click *Carrier: resend arrival (duplicate)*. The timeline shows "1 duplicate suppressed" and no new row.
 4. Click *WMS: departure scan uploaded 3h late*. The event is labeled **out of order** and **late**, and "Departed" still shows the original actual time with 2 reports.
-5. Click *Carrier: ETA slip alert*, then *Store: reports same delay*. Each click commits the event and the exception in one transaction (the **txn** badge in the activity log). One exception now has 2 related events and rises to the top of the queue, with its business impact in the score. Acknowledge it, assign it, add a note, and resolve it, and watch the audit trail. Later, *Carrier: out for delivery* (a GPS geofence ping) and *Store: received* bring the shelf cover back to `none`.
+5. Click *Carrier: ETA slip alert*, then *Store: reports same delay*. Each click commits the event and the exception in one transaction (the **txn** badge in the activity log). One exception now has 2 related events and rises to the top of the queue, with its business impact in the score. Open it: **Similar resolved cases** lists past delays and how they were handled. Click **Use this resolution**, acknowledge, assign, add a note, and resolve it, and watch the audit trail. Later, *Carrier: out for delivery* (a GPS geofence ping) and *Store: received* bring the shelf cover back to `none`.
 6. **Search** for `delayed replenishment` or `traffic` and point out the highlights.
 7. **Telemetry**: click *Add out-of-range reading*, then *Run aggregation*. Tighten the range and run it again.
 8. **Data quality**: go to **Observe** and submit a legacy event. It is accepted and listed as invalid. Go to **Enforce** and submit the other legacy event. It is rejected and the server error is shown. Repair or remove the invalid records, then click **Constraint** (9.0+). Optionally, try Constraint while an invalid record exists to see the scan fail.
@@ -114,6 +116,8 @@ Integration tests **skip with an explicit message** when `MONGODB_URI` is not se
 | Server selection timed out | Add your IP address in Atlas Network Access |
 | `Unauthorized` on stage buttons | The user needs `dbAdmin` on the demo database for `collMod` |
 | Search disabled, "building" | Wait; check `npm run search:status` |
+| Similar resolved cases says "building" or "missing" | Wait for `ops_exceptions_similar` to report queryable (about a minute for the demo data), or run `npm run search:create` |
+| Similar resolved cases says "unavailable" or fails | Check storage auto-scaling (M10+), your organization's Automated Embedding policy, and token usage in Atlas → Search & Vector Search → Automated Embedding |
 | "Maintenance in progress" banner that doesn't clear | Another setup, reset, or re-anchor is running; a lock from a crashed process expires after 10 minutes |
 | Page unreachable from another machine | By design: set `HOST=0.0.0.0` and `ADMIN_TOKEN` to expose it |
 | 415 or 403 from scripts calling the API | Send `Content-Type: application/json`, and no foreign `Origin` header |

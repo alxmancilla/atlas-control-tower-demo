@@ -11,7 +11,7 @@ import { applyExceptionAction, exceptionQueue, AUDIT_MAX } from '../../src/servi
 import { entityOverview } from '../../src/services/overview.js';
 import { telemetryView } from '../../src/services/telemetry.js';
 import { insertInvalidSample, repairInvalid, removeInvalid, transitionStage, findInvalidEvents } from '../../src/services/validation.js';
-import { searchStatus } from '../../src/services/search.js';
+import { findSimilar, searchStatus } from '../../src/services/search.js';
 import { ChangeFeed } from '../../src/services/changeFeed.js';
 import { reanchorDemo, demoClockAge } from '../../src/services/reanchor.js';
 import { IMPACT_LEVELS } from '../../src/domain/impact.js';
@@ -62,7 +62,7 @@ test('duplicate event is suppressed and does not create a second exception', { s
   assert.equal(second.event.reliability.duplicateCount, 1);
   const sameCategory = await triggerSample(db, profile, 'delay_store_report');
   assert.equal(sameCategory.exception.outcome, 'updated');
-  const excs = await db.collection(COLL.exceptions).find({ profile: 'retail', category: 'delivery_delay' }).toArray();
+  const excs = await db.collection(COLL.exceptions).find({ trackedEntityId: profile.entity.trackedEntityId, category: 'delivery_delay' }).toArray();
   assert.equal(excs.length, 1);
   assert.equal(excs[0].relatedEventIds.length, 2);
 });
@@ -289,8 +289,27 @@ test('business impact is computed on write and ranks exceptions', { skip }, asyn
   assert.match(after.businessImpact.reasons[0], /supply restored/);
 });
 
-test('search status reports index state without throwing', { skip }, async () => {
+test('resolved history is seeded per profile and kept out of the current queue', { skip }, async () => {
+  for (const id of ['retail', 'healthcare', 'manufacturing']) {
+    const p = getProfile(id);
+    const hist = await db.collection(COLL.exceptions).countDocuments({ profile: id, 'demo.history': true, status: 'resolved' });
+    assert.equal(hist, p.history.length, id);
+    const queue = await exceptionQueue(db, p);
+    assert.ok(queue.every((e) => e.trackedEntityId === p.entity.trackedEntityId), `${id} queue must not include history`);
+  }
+});
+
+test('search status reports each feature, and similar-case lookup refuses cleanly until its index is queryable', { skip }, async () => {
   const s = await searchStatus(db);
-  assert.equal(s.indexes.length, 2);
+  assert.equal(s.indexes.length, 3);
   assert.equal(typeof s.ready, 'boolean');
+  assert.equal(typeof s.similar.ready, 'boolean');
+  const [top] = await exceptionQueue(db, profile);
+  if (s.similar.ready) {
+    const res = await findSimilar(db, top.exceptionId);
+    assert.ok(res.results.every((r) => r.resolution?.note));
+  } else {
+    await assert.rejects(findSimilar(db, top.exceptionId), (err) => statusFor(err) === 503 && /Similar-case lookup/.test(err.message));
+  }
+  await assert.rejects(findSimilar(db, 'EXC-NOPE'), (err) => statusFor(err) === 404);
 });

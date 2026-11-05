@@ -98,8 +98,12 @@ export async function applyExceptionAction(db, exceptionId, { action, owner, not
   return updated;
 }
 
+// The queue and its counts cover the current tracked entity; resolved history from earlier
+// shipments stays in the collection as the corpus for similar-case lookup.
+const currentScope = (profile) => ({ profile: profile.id, trackedEntityId: profile.entity.trackedEntityId });
+
 export async function exceptionQueue(db, profile, now = new Date()) {
-  const list = await db.collection(COLL.exceptions).find({ profile: profile.id }).toArray();
+  const list = await db.collection(COLL.exceptions).find(currentScope(profile)).toArray();
   return buildQueue(list, now, profile.priority);
 }
 
@@ -107,7 +111,7 @@ export async function exceptionSummary(db, profile, now = new Date()) {
   const [res] = await db
     .collection(COLL.exceptions)
     .aggregate([
-      { $match: { profile: profile.id } },
+      { $match: currentScope(profile) },
       {
         $facet: {
           byStatus: [{ $group: { _id: '$status', n: { $sum: 1 } } }],

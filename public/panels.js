@@ -116,5 +116,33 @@ export function renderDetail(e, profile) {
       <button data-act="resolve" ${can('resolve') ? '' : 'disabled'}>Resolve</button>
     </div>
     <div id="excActionResult" class="small"></div>
+    <div id="similarCases" class="similar"></div>
     <ul class="audit">${[...e.audit].reverse().map((a) => `<li>${fmtTime(a.at)} <b>${esc(a.action)}</b> by ${esc(a.by)}${a.owner ? ` → ${esc(a.owner)}` : ''}${a.note ? `: ${esc(a.note)}` : ''}</li>`).join('')}</ul>`;
+}
+
+// Similar resolved cases from Atlas Vector Search with Automated Embedding.
+export function renderSimilar(res, canResolve) {
+  const el = $('similarCases');
+  if (!el) return;
+  if (!res) {
+    el.innerHTML = '<h3>Similar resolved cases</h3><p class="small muted">Looking up similar cases…</p>';
+    return;
+  }
+  if (res.error) {
+    el.innerHTML = `<h3>Similar resolved cases</h3><p class="small muted">${esc(res.error)}</p>`;
+    return;
+  }
+  if (!res.results.length) {
+    el.innerHTML = '<h3>Similar resolved cases</h3><p class="small muted">No resolved cases in this profile yet.</p>';
+    return;
+  }
+  el.innerHTML = `<h3>Similar resolved cases <span class="small muted">$vectorSearch, Automated Embedding (voyage-4)</span></h3>
+    <ul class="audit">${res.results
+      .map(
+        (r, i) => `<li>${badge(Number(r.score).toFixed(2), 'blue', 'vectorSearchScore')} <b>${esc(r.categoryLabel)}</b> · ${esc(r.trackedEntityId)}
+          <div class="small">${esc(r.summary)}</div>
+          <div class="small">${badge('resolution', 'green')} ${esc(r.resolution?.note ?? '')} <span class="muted">(${esc(r.resolution?.by ?? '')})</span>
+          ${canResolve && r.resolution?.note ? `<button class="secondary" data-use-resolution="${i}">Use this resolution</button>` : ''}</div></li>`
+      )
+      .join('')}</ul>`;
 }

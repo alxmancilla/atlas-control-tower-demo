@@ -44,6 +44,11 @@ export function validateProfile(p) {
     if (!p.samples.some((x) => x.id === s.duplicateOf)) errors.push(`sample ${s.id} duplicates unknown sample`);
   }
   if (p.telemetry?.enabled && !(p.telemetry.min < p.telemetry.max)) errors.push('telemetry.min must be below telemetry.max');
+  for (const h of p.history || []) {
+    if (!categories.includes(h.category)) errors.push(`history ${h.entityId} uses unknown category ${h.category}`);
+    if (h.entityId === p.entity?.trackedEntityId) errors.push(`history ${h.entityId} must use a past entity, not the current one`);
+    if (!h.summary || !h.resolution) errors.push(`history ${h.entityId} needs summary and resolution`);
+  }
   const pos = p.impact?.position;
   if (!pos) errors.push('impact.position is required');
   else {

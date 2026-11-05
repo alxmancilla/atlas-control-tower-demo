@@ -58,6 +58,21 @@ export default {
     excursionValue: 9.4,
   },
   searchExamples: ['missed handoff', 'outside range', 'custody form'],
+  // Synthetic resolved cases from earlier transfers; the corpus for "similar past exceptions".
+  history: [
+    { entityId: 'HC-TRF-3011', category: 'handling_excursion', daysAgo: 15, by: 'coord.osei',
+      summary: 'Data logger showed the cooler above 8 C for 25 minutes while parked at a relay point',
+      resolution: 'Quarantined the kits on arrival, sent logger data to QA, and shipped replacement kits from the hub same day' },
+    { entityId: 'HC-TRF-3140', category: 'delayed_handoff', daysAgo: 9, by: 'coord.lind',
+      summary: 'Relay courier was stuck at a prior stop and the box waited at the transfer point',
+      resolution: 'Dispatched a standby bike courier from the hub; handoff completed 20 min later' },
+    { entityId: 'HC-TRF-3205', category: 'missing_paperwork', daysAgo: 6, by: 'coord.osei',
+      summary: 'Custody form was not in the pouch when the box reached the receiving desk',
+      resolution: 'Hub emailed the scanned form; receiving desk attached it before releasing the kits' },
+    { entityId: 'HC-TRF-3288', category: 'handling_excursion', daysAgo: 3, by: 'coord.lind',
+      summary: 'Cooler temperature drifted out of the 2-8 C band during a long traffic delay',
+      resolution: 'Swapped to a pre-conditioned cooler at the relay; QA cleared the kits after reviewing the excursion' },
+  ],
   seedEvents: [
     { source: 'supply_hub', eventType: 'milestone', milestoneId: 'released', sourceEventId: 'HUB-REL-2201', eventTimeOffsetMin: -182,
       description: 'Transfer released from Central Supply Hub cold room', notes: 'Packed in validated cooler box CB-17',

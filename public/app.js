@@ -1,9 +1,9 @@
 import { $, api, esc, fmtTime, debounce } from './lib.js';
-import { renderOverview, renderMilestones, renderTimeline, renderQueue, renderDetail } from './panels.js';
+import { renderOverview, renderMilestones, renderTimeline, renderQueue, renderDetail, renderSimilar } from './panels.js';
 import { renderSearchStatus, renderSearchResults, renderTelemetry, renderValidation, renderResult } from './panels2.js';
 import { bindActions } from './actions.js';
 
-export const state = { meta: null, profileId: null, profile: null, queue: [], selectedId: null, flashId: null, ready: false };
+export const state = { meta: null, profileId: null, profile: null, queue: [], selectedId: null, flashId: null, ready: false, similar: {} };
 const q = (path) => `${path}${path.includes('?') ? '&' : '?'}profile=${state.profileId}`;
 export { q };
 
@@ -98,7 +98,27 @@ export async function refreshExceptions() {
   state.queue = queue;
   const open = queue.filter((e) => e.status !== 'resolved').length;
   renderQueue(queue, state.selectedId, `${open} active · ${queue.length - open} resolved`);
-  renderDetail(queue.find((e) => e.exceptionId === state.selectedId), state.profile);
+  showDetail();
+}
+
+// Renders the selected exception and its similar resolved cases. Results are cached per exception
+// because each lookup embeds the query text (Automated Embedding counts every query).
+export function showDetail() {
+  const exc = state.queue.find((e) => e.exceptionId === state.selectedId);
+  renderDetail(exc, state.profile);
+  if (!exc) return;
+  const canResolve = exc.status !== 'resolved';
+  const cached = state.similar[exc.exceptionId];
+  renderSimilar(cached, canResolve);
+  if (cached) return;
+  const id = exc.exceptionId;
+  api(`/api/exceptions/${encodeURIComponent(id)}/similar`)
+    .then((res) => (state.similar[id] = res))
+    .catch((err) => (state.similar[id] = { error: err.message, retryable: err.status === 503 }))
+    .then(() => {
+      if (state.selectedId === id) renderSimilar(state.similar[id], canResolve);
+      if (state.similar[id].retryable) delete state.similar[id]; // try again next time it is opened
+    });
 }
 
 export const refreshValidation = async () => renderValidation(await api(q('/api/validation')));

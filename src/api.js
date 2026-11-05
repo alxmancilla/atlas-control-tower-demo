@@ -7,7 +7,7 @@ import { triggerSample, timeline, reliabilitySummary, validProbeEvent } from './
 import { applyExceptionAction, exceptionQueue, exceptionSummary } from './services/exceptions.js';
 import { entityOverview } from './services/overview.js';
 import { telemetryView, addReading } from './services/telemetry.js';
-import { createSearchIndexes, runSearch, searchStatus, SearchUnavailableError, SEARCH_INDEXES } from './services/search.js';
+import { createSearchIndexes, findSimilar, runSearch, searchStatus, SearchUnavailableError, SEARCH_INDEXES } from './services/search.js';
 import { insertInvalidSample, insertValidEvent, removeInvalid, repairInvalid, transitionStage, validationState } from './services/validation.js';
 import { cachedIsInitialized, resetDemo, setupDemo } from './services/setup.js';
 import { reanchorDemo } from './services/reanchor.js';
@@ -53,6 +53,7 @@ export const routes = {
 
   'GET /api/exceptions': async ({ db, profile }) => ({ queue: await exceptionQueue(db, profile), rules: profile.priority }),
   'POST /api/exceptions/:id/action': async ({ db, params, body }) => applyExceptionAction(db, params.id, body),
+  'GET /api/exceptions/:id/similar': async ({ db, params }) => findSimilar(db, params.id),
 
   'GET /api/telemetry': async ({ db, profile, query }) =>
     telemetryView(db, profile, { hours: num(query.hours) ?? 8, min: num(query.min), max: num(query.max) }),

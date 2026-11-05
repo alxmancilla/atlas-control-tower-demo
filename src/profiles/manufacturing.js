@@ -59,6 +59,21 @@ export default {
     excursionValue: 71,
   },
   searchExamples: ['quality hold', 'production risk', 'porosity'],
+  // Synthetic resolved cases from earlier lots; the corpus for "similar past exceptions".
+  history: [
+    { entityId: 'MFG-LOT-8519', category: 'quality_hold', daysAgo: 20, by: 'qa.nguyen',
+      summary: 'Incoming inspection found casting voids on several housings from the same supplier heat',
+      resolution: 'Sorted the lot 100%, used good parts under deviation, and opened an 8D with the supplier' },
+    { entityId: 'MFG-LOT-8650', category: 'production_risk_delay', daysAgo: 11, by: 'planner.berg',
+      summary: 'Inbound housings late; line was going to starve before end of shift',
+      resolution: 'Resequenced the line to run WO-7790 first and expedited the remaining parts by hot-shot truck' },
+    { entityId: 'MFG-LOT-8702', category: 'asn_mismatch', daysAgo: 7, by: 'dock.lead',
+      summary: 'Carton count at the dock was one short of the shipping notice',
+      resolution: 'Received the partial quantity and asked the supplier to ship the missing carton next day' },
+    { entityId: 'MFG-LOT-8788', category: 'quality_hold', daysAgo: 4, by: 'qa.nguyen',
+      summary: 'Bore surface porosity detected in the sample; lot placed on hold',
+      resolution: 'Released after re-inspection with 4 parts scrapped; supplier added an X-ray check' },
+  ],
   seedEvents: [
     { source: 'supplier_portal', eventType: 'milestone', milestoneId: 'supplier_ready', sourceEventId: 'SUP-RDY-1180', eventTimeOffsetMin: -470,
       description: 'Supplier marked lot packed and ready to ship', notes: 'Certificate of conformance uploaded',

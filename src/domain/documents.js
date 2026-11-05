@@ -70,6 +70,37 @@ export function buildEvent(profile, spec, { now, seeded = false }) {
   return evt;
 }
 
+// A resolved exception from an earlier shipment, used as the "similar past cases" corpus.
+export function buildHistoryException(profile, h, index, now) {
+  const cfg = profile.exceptionCategories[h.category];
+  const openedAt = addMinutes(now, -h.daysAgo * 1440);
+  const resolvedAt = addMinutes(openedAt, Math.min(cfg.slaMin, 180));
+  return {
+    exceptionId: `HIST-${profile.id.slice(0, 3).toUpperCase()}-${String(index + 1).padStart(3, '0')}`,
+    exceptionKey: `${profile.id}:${h.entityId}:${h.category}`,
+    trackedEntityId: h.entityId,
+    profile: profile.id,
+    category: h.category,
+    categoryLabel: cfg.label,
+    severity: cfg.severity,
+    impact: cfg.impact,
+    status: 'resolved',
+    owner: h.by,
+    summary: `${cfg.label}: ${h.summary}`,
+    triggeringEvent: null,
+    relatedEventIds: [],
+    slaDueAt: addMinutes(openedAt, cfg.slaMin),
+    createdAt: openedAt,
+    updatedAt: resolvedAt,
+    resolution: { note: h.resolution, by: h.by, at: resolvedAt },
+    audit: [
+      { at: openedAt, action: 'opened', by: 'history', note: h.summary },
+      { at: resolvedAt, action: 'resolve', by: h.by, note: h.resolution },
+    ],
+    demo: { history: true },
+  };
+}
+
 export const legacyTimeString = (date) => `${new Date(date).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
 // Intentionally malformed legacy documents, clearly marked with demo.invalidSample.
