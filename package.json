@@ -12,8 +12,8 @@
     "check": "node --env-file-if-exists=.env src/cli.js check",
     "reset": "node --env-file-if-exists=.env src/cli.js reset",
     "reanchor": "node --env-file-if-exists=.env src/cli.js reanchor",
-    "test": "node --test test/unit/",
-    "test:integration": "node --env-file-if-exists=.env --test --test-concurrency=1 test/integration/"
+    "test": "node --test \"test/unit/*.test.js\"",
+    "test:integration": "node --env-file-if-exists=.env --test --test-concurrency=1 \"test/integration/*.test.js\""
   },
   "engines": {
     "node": ">=22"

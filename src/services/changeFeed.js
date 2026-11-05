@@ -3,8 +3,8 @@ import { COLL } from '../db.js';
 import { redact } from '../config.js';
 
 // Collections watched by the live view. telemetry_readings is excluded: time-series
-// collections do not support change streams.
-export const WATCHED = [COLL.events, COLL.exceptions, COLL.entities];
+// collections do not support change streams. demo_state tells the page when maintenance starts and ends.
+export const WATCHED = [COLL.events, COLL.exceptions, COLL.entities, COLL.state];
 
 const NON_RESUMABLE = new Set([260, 280, 286]); // InvalidResumeToken, ChangeStreamFatalError, ChangeStreamHistoryLost
 

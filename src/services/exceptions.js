@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { COLL } from '../db.js';
 import { buildQueue, checkExceptionAction, WorkflowError } from '../domain/rules.js';
+import { NotFoundError } from '../errors.js';
 
 const MAX_TEXT = 500;
 // Keeps the embedded audit array bounded; the oldest entries are dropped first.
@@ -75,7 +76,7 @@ export async function openOrUpdateException(db, profile, evt) {
 export async function applyExceptionAction(db, exceptionId, { action, owner, note, operator } = {}) {
   const coll = db.collection(COLL.exceptions);
   const exc = await coll.findOne({ exceptionId });
-  if (!exc) throw new WorkflowError(`Exception ${exceptionId} not found`);
+  if (!exc) throw new NotFoundError(`Exception ${exceptionId} not found`);
   const payload = { owner: clean(owner), note: clean(note) };
   const { allowedFrom, nextStatus } = checkExceptionAction(exc.status, action, payload);
   const now = new Date();

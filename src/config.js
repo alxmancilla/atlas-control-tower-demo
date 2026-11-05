@@ -48,6 +48,8 @@ export function loadConfig(env = process.env) {
     dbName: assertDemoDbName(env.DEMO_DB_NAME || 'atlas_control_tower_demo'),
     defaultProfile,
     port: Number(env.PORT || 3000),
+    host: env.HOST || '127.0.0.1',
+    adminToken: env.ADMIN_TOKEN || null,
     target: targetLabel(uri),
   };
 }

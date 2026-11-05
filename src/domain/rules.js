@@ -1,4 +1,5 @@
 import { minutesBetween } from './milestoneRisk.js';
+import { BadRequestError, ConflictError } from '../errors.js';
 
 // ---------- Exception prioritization (transparent, profile-configurable) ----------
 export function prioritizeException(exc, now, rules) {
@@ -51,17 +52,18 @@ const ALLOWED = {
   resolve: ['open', 'acknowledged'],
 };
 
-export class WorkflowError extends Error {}
+// The exception's current state does not allow the action (HTTP 409).
+export class WorkflowError extends ConflictError {}
 
 export function checkExceptionAction(currentStatus, action, payload = {}) {
   const allowedFrom = ALLOWED[action];
-  if (!allowedFrom) throw new WorkflowError(`Unknown action "${action}"`);
+  if (!allowedFrom) throw new BadRequestError(`Unknown action "${action}"`);
   if (!allowedFrom.includes(currentStatus)) {
     throw new WorkflowError(`Cannot ${action} an exception that is ${currentStatus}`);
   }
-  if (action === 'assign' && !payload.owner?.trim()) throw new WorkflowError('Assign requires an owner');
+  if (action === 'assign' && !payload.owner?.trim()) throw new BadRequestError('Assign requires an owner');
   if ((action === 'note' || action === 'resolve') && !payload.note?.trim()) {
-    throw new WorkflowError(`${action === 'resolve' ? 'Resolve requires a resolution note' : 'Note text is required'}`);
+    throw new BadRequestError(`${action === 'resolve' ? 'Resolve requires a resolution note' : 'Note text is required'}`);
   }
   const nextStatus = action === 'acknowledge' ? 'acknowledged' : action === 'resolve' ? 'resolved' : currentStatus;
   return { allowedFrom, nextStatus };

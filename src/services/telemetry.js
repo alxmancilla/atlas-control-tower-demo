@@ -1,4 +1,5 @@
 import { COLL } from '../db.js';
+import { BadRequestError } from '../errors.js';
 
 // Telemetry lives in a time-series collection. Time-series collections do not support
 // change streams or MongoDB Search, so the UI queries this view on demand.
@@ -37,7 +38,7 @@ export async function seedTelemetry(db, profile, now = new Date()) {
 
 export async function addReading(db, profile, kind = 'normal', now = new Date()) {
   const t = profile.telemetry;
-  if (!t?.enabled) throw new Error(`Profile ${profile.id} does not use telemetry`);
+  if (!t?.enabled) throw new BadRequestError(`Profile ${profile.id} does not use telemetry`);
   const value = kind === 'excursion' ? t.excursionValue : t.baseline + (Math.random() - 0.5) * ((t.max - t.min) / 4);
   const doc = reading(profile, now, value);
   await db.collection(COLL.telemetry).insertOne(doc);
@@ -100,7 +101,8 @@ export async function telemetryView(db, profile, { hours = 8, min, max } = {}, n
   const t = profile.telemetry;
   if (!t?.enabled) return { enabled: false, note: 'This profile does not use telemetry; the capability is optional here.' };
   const range = { min: Number.isFinite(min) ? min : t.min, max: Number.isFinite(max) ? max : t.max };
-  if (!(range.min < range.max)) throw new Error('Telemetry range min must be below max');
+  if (!(range.min < range.max)) throw new BadRequestError('Telemetry range min must be below max');
+  if (!(hours > 0 && hours <= 168)) throw new BadRequestError('Telemetry window must be between 0 and 168 hours');
   const since = new Date(now.getTime() - hours * 3600000);
   const [res] = await db.collection(COLL.telemetry).aggregate(telemetryPipeline(profile, { since, ...range })).toArray();
   return {

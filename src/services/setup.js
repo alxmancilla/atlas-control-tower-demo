@@ -1,4 +1,4 @@
-import { COLL, collectionInfo, ensureSetup, serverError } from '../db.js';
+import { COLL, INDEXES, collectionInfo, ensureSetup, serverError } from '../db.js';
 import { PROFILES } from '../profiles/index.js';
 import { buildEvent, buildInvalidEvent, buildTrackedEntity, byIdempotencyKey } from '../domain/documents.js';
 import { detectStage } from '../domain/schema.js';
@@ -7,6 +7,7 @@ import { applyExceptionAction, exceptionKeyFor } from './exceptions.js';
 import { seedTelemetry } from './telemetry.js';
 import { createSearchIndexes } from './search.js';
 import { memo, invalidate } from './cache.js';
+import { BadRequestError } from '../errors.js';
 
 /**
  * Seeds one profile. Safe to run repeatedly: entities upsert by trackedEntityId, seed events already
@@ -70,26 +71,47 @@ export async function setupDemo(db, { now = new Date(), withSearch = true } = {}
 // Explicit, confirmed reset limited to the demo collections in the configured demo database.
 export async function resetDemo(db, confirmation, opts = {}) {
   if (confirmation !== db.databaseName) {
-    throw new Error(`Reset not confirmed. Type the database name "${db.databaseName}" to confirm.`);
+    throw new BadRequestError(`Reset not confirmed. Type the database name "${db.databaseName}" to confirm.`);
   }
   invalidate(`${db.databaseName}:`);
   const info = await collectionInfo(db);
   const dropped = [];
   for (const name of Object.values(COLL)) {
-    if (info[name]) {
-      await db.dropCollection(name);
-      dropped.push(name);
-    }
+    if (name === COLL.state || !info[name]) continue;
+    await db.dropCollection(name);
+    dropped.push(name);
   }
+  // demo_state is cleared rather than dropped so the maintenance lock held by the caller survives.
+  if (info[COLL.state]) await db.collection(COLL.state).deleteMany({ _id: { $ne: 'maintenance' } });
   return { dropped, ...(await setupDemo(db, opts)) };
 }
 
+/**
+ * Readiness: every collection exists with the right type, every planned index exists, and every
+ * profile has its tracked entity and seed events. `problems` explains anything missing.
+ */
 export async function isInitialized(db) {
   const info = await collectionInfo(db);
   const missing = Object.values(COLL).filter((c) => !info[c]);
-  if (missing.length) return { initialized: false, missing };
-  const entities = await db.collection(COLL.entities).countDocuments();
-  return { initialized: entities > 0, missing, entities };
+  if (missing.length) return { initialized: false, missing, problems: [`Missing collections: ${missing.join(', ')}`] };
+  const problems = [];
+  if (info[COLL.telemetry].type !== 'timeseries') problems.push(`${COLL.telemetry} is not a time-series collection; reset the demo database`);
+  for (const coll of new Set(INDEXES.map((i) => i.coll))) {
+    const names = new Set((await db.collection(coll).indexes()).map((i) => i.name));
+    const absent = INDEXES.filter((i) => i.coll === coll && !names.has(i.options.name)).map((i) => i.options.name);
+    if (absent.length) problems.push(`Missing indexes on ${coll}: ${absent.join(', ')}`);
+  }
+  const [entities, seeded] = await Promise.all([
+    db.collection(COLL.entities).aggregate([{ $group: { _id: '$profile' } }]).toArray(),
+    db.collection(COLL.events).aggregate([{ $match: { 'demo.seeded': true } }, { $group: { _id: '$profile' } }]).toArray(),
+  ]);
+  const has = (rows) => new Set(rows.map((r) => r._id));
+  const [withEntity, withSeed] = [has(entities), has(seeded)];
+  for (const id of Object.keys(PROFILES)) {
+    if (!withEntity.has(id)) problems.push(`Profile ${id} has no tracked entity`);
+    else if (!withSeed.has(id)) problems.push(`Profile ${id} has no seed events`);
+  }
+  return { initialized: problems.length === 0, missing, problems, profiles: withEntity.size };
 }
 
 // Every API request checks initialization; share the answer for 5 s. setupDemo and resetDemo invalidate it.

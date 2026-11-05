@@ -4,6 +4,7 @@ import { setupDemo, resetDemo, isInitialized } from './services/setup.js';
 import { createSearchIndexes, searchStatus } from './services/search.js';
 import { validationState } from './services/validation.js';
 import { reanchorDemo } from './services/reanchor.js';
+import { withMaintenance } from './services/maintenance.js';
 
 const [command, ...args] = process.argv.slice(2);
 const print = (obj) => console.log(JSON.stringify(obj, null, 2));
@@ -17,7 +18,7 @@ async function main() {
     console.log(`MongoDB ${info.version}${info.fcv ? ` (FCV ${info.fcv})` : ''}. ${info.gate.reason}`);
     switch (command) {
       case 'setup':
-        print(await setupDemo(db));
+        print(await withMaintenance(db, 'setup', () => setupDemo(db)));
         break;
       case 'search-create':
         print(await createSearchIndexes(db));
@@ -33,12 +34,13 @@ async function main() {
         break;
       }
       case 'reanchor':
-        print(await reanchorDemo(db));
+        print(await withMaintenance(db, 'reanchor', () => reanchorDemo(db)));
         break;
       case 'reset': {
         const i = args.indexOf('--confirm');
         const confirmation = i >= 0 ? args[i + 1] : undefined;
-        print(await resetDemo(db, confirmation));
+        if (confirmation !== db.databaseName) throw new Error(`Reset not confirmed. Use: npm run reset -- --confirm ${db.databaseName}`);
+        print(await withMaintenance(db, 'reset', () => resetDemo(db, confirmation)));
         break;
       }
       default:

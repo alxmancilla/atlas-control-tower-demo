@@ -1,6 +1,7 @@
 import { INDEXES } from './db.js';
 import { getProfile, PROFILE_IDS, profileSummary, PROFILES } from './profiles/index.js';
-import { WorkflowError } from './domain/rules.js';
+import { BadRequestError, StatusError } from './errors.js';
+import { withMaintenance, maintenanceState } from './services/maintenance.js';
 import { invalidDocumentsFilter } from './domain/schema.js';
 import { triggerSample, timeline, reliabilitySummary, validProbeEvent } from './services/events.js';
 import { applyExceptionAction, exceptionQueue, exceptionSummary } from './services/exceptions.js';
@@ -11,12 +12,7 @@ import { insertInvalidSample, insertValidEvent, removeInvalid, repairInvalid, tr
 import { cachedIsInitialized, resetDemo, setupDemo } from './services/setup.js';
 import { reanchorDemo } from './services/reanchor.js';
 
-export class HttpError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
+export class HttpError extends StatusError {}
 
 const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
 
@@ -33,9 +29,12 @@ export const routes = {
     indexes: INDEXES.map(({ coll, key, options, reason }) => ({ coll, key, name: options.name, unique: !!options.unique, reason })),
     searchIndexes: SEARCH_INDEXES,
   }),
-  'POST /api/setup': async ({ db }) => setupDemo(db),
-  'POST /api/reset': async ({ db, body }) => resetDemo(db, body.confirm),
-  'POST /api/reanchor': async ({ db }) => ({ profiles: await reanchorDemo(db) }),
+  'POST /api/setup': async ({ db }) => withMaintenance(db, 'setup', () => setupDemo(db)),
+  'POST /api/reset': async ({ db, body }) => {
+    if (body.confirm !== db.databaseName) throw new BadRequestError(`Reset not confirmed. Type the database name "${db.databaseName}" to confirm.`);
+    return withMaintenance(db, 'reset', () => resetDemo(db, body.confirm));
+  },
+  'POST /api/reanchor': async ({ db }) => ({ profiles: await withMaintenance(db, 'reanchor', () => reanchorDemo(db)) }),
 
   'GET /api/overview': async ({ db, profile }) => {
     const [overview, reliability, exceptions] = await Promise.all([
@@ -54,7 +53,10 @@ export const routes = {
 
   'GET /api/telemetry': async ({ db, profile, query }) =>
     telemetryView(db, profile, { hours: num(query.hours) ?? 8, min: num(query.min), max: num(query.max) }),
-  'POST /api/telemetry/reading': async ({ db, profile, body }) => addReading(db, profile, body.kind),
+  'POST /api/telemetry/reading': async ({ db, profile, body }) => {
+    if (!['normal', 'excursion'].includes(body.kind)) throw new BadRequestError('kind must be "normal" or "excursion"');
+    return addReading(db, profile, body.kind);
+  },
 
   'GET /api/search/status': async ({ db }) => searchStatus(db),
   'POST /api/search/indexes': async ({ db }) => ({ results: await createSearchIndexes(db), status: await searchStatus(db) }),
@@ -71,6 +73,8 @@ export const routes = {
 
 const NEEDS_NO_DB = new Set(['GET /api/status', 'POST /api/connect', 'GET /api/profiles']);
 const NEEDS_NO_INIT = new Set([...NEEDS_NO_DB, 'POST /api/setup', 'POST /api/reset', 'GET /api/search/status']);
+// Maintenance routes take the lock themselves; everything else waits so views never show half-shifted data.
+const RUNS_DURING_MAINTENANCE = new Set([...NEEDS_NO_DB, 'POST /api/setup', 'POST /api/reset', 'POST /api/reanchor', 'GET /api/search/status']);
 
 export function matchRoute(method, pathname) {
   for (const [key, handler] of Object.entries(routes)) {
@@ -87,6 +91,7 @@ export function matchRoute(method, pathname) {
 export async function handleApi(app, method, url, body) {
   const route = matchRoute(method, url.pathname);
   if (!route) throw new HttpError(404, `No route ${method} ${url.pathname}`);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new BadRequestError('Request body must be a JSON object');
   const query = Object.fromEntries(url.searchParams);
   let profile = null;
   try {
@@ -97,6 +102,10 @@ export async function handleApi(app, method, url, body) {
   let db = null;
   if (!NEEDS_NO_DB.has(route.key)) {
     db = await app.ensureConnected();
+    if (!RUNS_DURING_MAINTENANCE.has(route.key)) {
+      const m = await maintenanceState(db);
+      if (m.active) throw new HttpError(503, `Maintenance in progress (${m.op}). Views resume automatically when it finishes.`);
+    }
     if (!NEEDS_NO_INIT.has(route.key)) {
       const init = await cachedIsInitialized(db);
       if (!init.initialized) throw new HttpError(409, 'The demo database is not initialized. Click "Initialize demo data" or run npm run setup.');
@@ -106,8 +115,7 @@ export async function handleApi(app, method, url, body) {
 }
 
 export function statusFor(err) {
-  if (err instanceof HttpError) return err.status;
-  if (err instanceof WorkflowError) return 409;
+  if (err instanceof StatusError) return err.status;
   if (err instanceof SearchUnavailableError) return 503;
   if (err?.code === 13 || err?.codeName === 'Unauthorized') return 403;
   return 500;

@@ -2,6 +2,7 @@ import { COLL } from '../db.js';
 import { classifyArrival } from '../domain/rules.js';
 import { buildEvent, byIdempotencyKey, idempotencyKey } from '../domain/documents.js';
 import { openOrUpdateException } from './exceptions.js';
+import { BadRequestError } from '../errors.js';
 
 const isDuplicateKey = (err, field) => err?.code === 11000 && (!field || String(err.message).includes(field));
 
@@ -58,7 +59,7 @@ export async function ingestEvent(db, profile, evt, { receivedAt = new Date() } 
 
 export async function triggerSample(db, profile, sampleId, now = new Date()) {
   const spec = profile.samples.find((s) => s.id === sampleId);
-  if (!spec) throw new Error(`Unknown sample "${sampleId}" for profile ${profile.id}`);
+  if (!spec) throw new BadRequestError(`Unknown sample "${sampleId}" for profile ${profile.id}`);
   const base = spec.duplicateOf ? profile.samples.find((s) => s.id === spec.duplicateOf) : spec;
   let evt = null;
   if (spec.duplicateOf) {

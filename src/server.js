@@ -8,7 +8,9 @@ import { ChangeFeed } from './services/changeFeed.js';
 import { cachedIsInitialized } from './services/setup.js';
 import { cachedSearchStatus } from './services/search.js';
 import { demoClockAge } from './services/reanchor.js';
+import { maintenanceState } from './services/maintenance.js';
 import { handleApi, HttpError, statusFor } from './api.js';
+import { assertSafeBinding, guardRequest, isLoopbackBind, SECURITY_HEADERS } from './requestGuard.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
@@ -47,11 +49,13 @@ export function createApp(config) {
     },
 
     async status() {
-      const base = { database: config.dbName, target: config.target, defaultProfile: config.defaultProfile };
+      const base = { database: config.dbName, target: config.target, defaultProfile: config.defaultProfile, adminTokenRequired: !!config.adminToken };
       if (!app.db) return { ...base, connected: false, error: app.connectError };
       try {
+        const maintenance = await maintenanceState(app.db);
+        if (maintenance.active) return { ...base, connected: true, server: app.info, maintenance, changeStream: app.feed?.state };
         const [init, search, clockAgeMin] = await Promise.all([cachedIsInitialized(app.db), cachedSearchStatus(app.db), demoClockAge(app.db)]);
-        return { ...base, connected: true, server: app.info, init, search, clockAgeMin, changeStream: app.feed?.state };
+        return { ...base, connected: true, server: app.info, maintenance, init, search, clockAgeMin, changeStream: app.feed?.state };
       } catch (err) {
         return { ...base, connected: true, server: app.info, error: `Status check failed: ${redact(err.message)}`, changeStream: app.feed?.state };
       }
@@ -107,7 +111,7 @@ async function serveStatic(pathname, res) {
   if (rel.startsWith('..')) throw new HttpError(404, 'Not found');
   const body = await readFile(join(PUBLIC_DIR, rel)).catch(() => null);
   if (!body) throw new HttpError(404, 'Not found');
-  res.writeHead(200, { 'Content-Type': TYPES[extname(rel)] ?? 'application/octet-stream' });
+  res.writeHead(200, { 'Content-Type': TYPES[extname(rel)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache', ...SECURITY_HEADERS });
   res.end(body);
 }
 
@@ -115,6 +119,7 @@ export function createServer(app) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
+      guardRequest(req, app.config);
       if (url.pathname === '/api/stream') {
         await app.ensureConnected().catch(() => {});
         return serveStream(app, req, res);
@@ -122,7 +127,7 @@ export function createServer(app) {
       if (!url.pathname.startsWith('/api/')) return await serveStatic(url.pathname, res);
       const body = req.method === 'POST' ? await readBody(req) : {};
       const result = await handleApi(app, req.method, url, body);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.end(JSON.stringify(result));
     } catch (err) {
       const status = statusFor(err);
@@ -141,10 +146,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error(err instanceof ConfigError ? `Configuration error: ${err.message}` : redact(err.message));
     process.exit(1);
   }
+  try {
+    assertSafeBinding(config);
+  } catch (err) {
+    console.error(`Configuration error: ${err.message}`);
+    process.exit(1);
+  }
   const app = createApp(config);
   const server = createServer(app);
-  server.listen(config.port, () => {
-    console.log(`Control Tower: http://localhost:${config.port}  (Atlas target ${config.target}, database ${config.dbName})`);
+  server.listen(config.port, config.host, () => {
+    const where = isLoopbackBind(config.host) ? 'this machine only' : `HOST ${config.host}, admin token required for changes`;
+    console.log(`Control Tower: http://localhost:${config.port}  (${where}; Atlas target ${config.target}, database ${config.dbName})`);
   });
   app.ensureConnected().catch((err) => console.error(`Atlas connection: ${err.message}`));
   const shutdown = async () => {

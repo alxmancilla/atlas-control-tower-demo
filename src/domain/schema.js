@@ -1,4 +1,5 @@
 import { PROFILE_IDS } from '../profiles/index.js';
+import { BadRequestError } from '../errors.js';
 
 // Proposed operational_events schema. Uses only $jsonSchema keywords MongoDB documents:
 // bsonType, required, properties, enum, minLength, description.
@@ -54,7 +55,7 @@ export function detectStage(options = {}) {
  * Leaving constraint requires downgrading to strict before the validator can change.
  */
 export function planTransition(currentOptions, target, coll) {
-  if (!STAGES.includes(target)) throw new Error(`Unknown stage "${target}"`);
+  if (!STAGES.includes(target)) throw new BadRequestError(`Unknown stage "${target}"`);
   const current = detectStage(currentOptions);
   if (current === target) return [];
   const steps = [];

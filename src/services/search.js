@@ -1,5 +1,6 @@
 import { COLL, serverError } from '../db.js';
 import { memo, invalidate } from './cache.js';
+import { BadRequestError } from '../errors.js';
 
 // MongoDB Search (Atlas Search) index definitions. The same JSON can be pasted into the Atlas UI
 // JSON editor (see README). Static mappings keep the index small and explicit.
@@ -138,7 +139,7 @@ export function searchPipelines(profile, { q, kind = 'all', source, eventType, s
 
 export async function runSearch(db, profile, params) {
   const q = String(params.q ?? '').trim().slice(0, 200);
-  if (!q) throw new Error('Enter search text');
+  if (!q) throw new BadRequestError('Enter search text');
   const status = await cachedSearchStatus(db);
   if (!status.ready) throw new SearchUnavailableError(status.message);
   const { collection, pipeline } = searchPipelines(profile, { ...params, q });

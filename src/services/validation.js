@@ -4,6 +4,7 @@ import { getProfile } from '../profiles/index.js';
 import { buildInvalidEvent, planRepair } from '../domain/documents.js';
 import { detectStage, invalidDocumentsFilter, operationalEventSchema, planTransition } from '../domain/schema.js';
 import { ingestEvent } from './events.js';
+import { BadRequestError, NotFoundError } from '../errors.js';
 
 export async function eventCollectionOptions(db) {
   const [info] = await db.listCollections({ name: COLL.events }).toArray();
@@ -77,7 +78,7 @@ export async function transitionStage(db, target, gate) {
 
 export async function insertInvalidSample(db, profile, sampleId, now = new Date()) {
   const spec = profile.invalidSamples.find((s) => s.id === sampleId);
-  if (!spec) throw new Error(`Unknown invalid sample "${sampleId}"`);
+  if (!spec) throw new BadRequestError(`Unknown invalid sample "${sampleId}"`);
   const doc = buildInvalidEvent(profile, spec, now);
   const stage = detectStage(await eventCollectionOptions(db));
   try {
@@ -106,14 +107,14 @@ export async function insertValidEvent(db, profile, evt) {
 }
 
 const toObjectId = (id) => {
-  if (!ObjectId.isValid(id)) throw new Error('Invalid document id');
+  if (typeof id !== 'string' || !ObjectId.isValid(id)) throw new BadRequestError('Invalid document id');
   return new ObjectId(id);
 };
 
 export async function repairInvalid(db, id) {
   const coll = db.collection(COLL.events);
   const doc = await coll.findOne({ _id: toObjectId(id), 'demo.invalidSample': true });
-  if (!doc) throw new Error('Only seeded or sample invalid demo records can be repaired here');
+  if (!doc) throw new NotFoundError('Only seeded or sample invalid demo records can be repaired here');
   const plan = planRepair(doc, getProfile(doc.profile));
   if (plan.error) return { ok: false, error: { message: plan.error } };
   try {
@@ -126,6 +127,6 @@ export async function repairInvalid(db, id) {
 
 export async function removeInvalid(db, id) {
   const res = await db.collection(COLL.events).deleteOne({ _id: toObjectId(id), 'demo.invalidSample': true });
-  if (!res.deletedCount) throw new Error('Only seeded or sample invalid demo records can be removed here');
+  if (!res.deletedCount) throw new NotFoundError('Only seeded or sample invalid demo records can be removed here');
   return { ok: true, deleted: res.deletedCount };
 }

@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { loadConfig } from '../../src/config.js';
 import { connect, serverInfo, COLL } from '../../src/db.js';
 import { getProfile } from '../../src/profiles/index.js';
-import { resetDemo, setupDemo } from '../../src/services/setup.js';
+import { resetDemo, setupDemo, isInitialized } from '../../src/services/setup.js';
+import { withMaintenance, maintenanceState } from '../../src/services/maintenance.js';
+import { handleApi, statusFor } from '../../src/api.js';
 import { triggerSample } from '../../src/services/events.js';
 import { applyExceptionAction, exceptionQueue, AUDIT_MAX } from '../../src/services/exceptions.js';
 import { entityOverview } from '../../src/services/overview.js';
@@ -190,6 +192,56 @@ test('duplicate lookup and overview exception join use indexes, not collection s
   const joins = ov.stages.filter((s) => s.$lookup);
   for (const j of joins) assert.equal(j.collectionScans, 0, `$lookup into ${j.$lookup.from} scanned the collection`);
   assert.ok(joins.find((j) => j.$lookup.from === COLL.exceptions).indexesUsed.includes('entity_status'));
+});
+
+test('readiness check reports a missing index, and setup repairs it', { skip }, async () => {
+  assert.equal((await isInitialized(db)).initialized, true);
+  await db.collection(COLL.exceptions).dropIndex('entity_status');
+  const broken = await isInitialized(db);
+  assert.equal(broken.initialized, false);
+  assert.match(broken.problems.join(' '), /Missing indexes on exceptions: entity_status/);
+  await setupDemo(db, { withSearch: false });
+  assert.equal((await isInitialized(db)).initialized, true);
+});
+
+test('maintenance lock: one holder at a time, API pauses, released on completion', { skip }, async () => {
+  const app = { config: { defaultProfile: 'retail' }, info, ensureConnected: async () => db };
+  const call = (method, path, body = {}) =>
+    handleApi(app, method, new URL(`http://localhost${path}`), body).then(
+      () => 200,
+      (err) => statusFor(err)
+    );
+  let release;
+  const running = withMaintenance(db, 'reanchor', () => new Promise((r) => (release = r)));
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal((await maintenanceState(db)).active, true);
+  await assert.rejects(withMaintenance(db, 'setup', async () => {}), /Another maintenance operation \(reanchor\)/);
+  assert.equal(await call('GET', '/api/overview?profile=retail'), 503);
+  assert.equal(await call('GET', '/api/profiles'), 200);
+  release();
+  await running;
+  assert.equal((await maintenanceState(db)).active, false);
+  assert.equal(await call('GET', '/api/overview?profile=retail'), 200);
+});
+
+test('API returns 4xx for caller mistakes', { skip }, async () => {
+  const app = { config: { defaultProfile: 'retail' }, info, ensureConnected: async () => db };
+  const call = (method, path, body = {}) =>
+    handleApi(app, method, new URL(`http://localhost${path}`), body).then(
+      () => 200,
+      (err) => statusFor(err)
+    );
+  assert.equal(await call('POST', '/api/events/sample', { sampleId: 'nope' }), 400);
+  assert.equal(await call('POST', '/api/exceptions/EXC-NOPE/action', { action: 'acknowledge' }), 404);
+  assert.equal(await call('POST', '/api/reset', { confirm: 'wrong' }), 400);
+  assert.equal(await call('GET', '/api/telemetry?profile=retail&hours=abc'), 400);
+  assert.equal(await call('GET', '/api/telemetry?profile=retail&min=5&max=1'), 400);
+  assert.equal(await call('POST', '/api/telemetry/reading', { kind: 'weird' }), 400);
+  assert.equal(await call('POST', '/api/validation/stage', { stage: 'bogus' }), 400);
+  assert.equal(await call('POST', '/api/validation/repair', { id: 'not-an-id' }), 400);
+  assert.equal(await call('POST', '/api/validation/remove', { id: '000000000000000000000000' }), 404);
+  assert.equal(await call('GET', '/api/overview?profile=unknown'), 400);
+  assert.equal(await call('POST', '/api/setup', ['not', 'an', 'object']), 400);
 });
 
 test('search status reports index state without throwing', { skip }, async () => {

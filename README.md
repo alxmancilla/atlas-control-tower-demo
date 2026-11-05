@@ -26,7 +26,11 @@ npm run search:status         # wait until both Search indexes report queryable:
 npm start                     # http://localhost:3000
 ```
 
-`DEMO_DB_NAME` must contain `demo`. Setup, seed, and reset only touch that database. Setup is idempotent: it creates what is missing and never drops anything. The UI also offers **Initialize demo data** when the database is empty.
+`DEMO_DB_NAME` must contain `demo`. Setup, seed, and reset only touch that database. Setup is idempotent: it creates what is missing and never drops anything. The UI also offers **Initialize demo data** when the database is missing collections, indexes, or a profile's seed data.
+
+Setup inserts seed documents only when they're absent, so **after editing a profile file, run reset** to see the changes; setup won't rewrite existing seeded documents.
+
+Setup, reset, and re-anchor (from the UI or the CLI) hold a maintenance lock in `demo_state`. While it's held, the page shows a banner, pauses refreshes, and disables buttons, so you never see half-updated data. Other API calls return 503 until it finishes. A lock left by a crashed process expires after 10 minutes.
 
 Reset drops and recreates only the demo collections, and it requires confirmation:
 
@@ -63,7 +67,7 @@ Index reasons appear in the UI (**Atlas capabilities → Indexes**) and in `src/
 
 ## Atlas capabilities shown
 
-- **Change streams**: one database-level stream (`src/services/changeFeed.js`) with resume tokens and exponential-backoff reconnection, pushed to the browser over Server-Sent Events. Views refresh from the stream, not from button clicks. The header pill shows `live`, `reconnecting`, or `resuming`.
+- **Change streams**: one database-level stream (`src/services/changeFeed.js`) with resume tokens and exponential-backoff reconnection, pushed to the browser over Server-Sent Events. Views refresh from the stream, not from button clicks. The header pill shows `live`, `reconnecting`, or `resuming`. Resume tokens are kept in memory, so they cover network blips while the server runs; after a server restart, the stream starts from "now" and the page reloads its data instead of replaying missed changes.
 - **MongoDB Search**: `$search` with fuzzy matching, highlights, and token filters by profile, source, and status, over event descriptions and notes and over exception summaries and resolution notes. Search stays disabled until Atlas reports both indexes `queryable: true`. The UI then shows MISSING, building, or UNAVAILABLE with the reason. The index definitions are in `SEARCH_INDEXES` in `src/services/search.js`, and you can paste them into the Atlas UI JSON editor if you prefer to create them manually.
 - **Time series**: a `$setWindowFields` moving average, range checks, and excursions. You can change the range in the UI. It is a demo threshold, not a compliance limit. Telemetry is queried on demand because **time-series collections do not support change streams or MongoDB Search**.
 - **Schema validation**, applied to `operational_events` with `collMod`:
@@ -104,6 +108,9 @@ Integration tests **skip with an explicit message** when `MONGODB_URI` is not se
 | Server selection timed out | Add your IP address in Atlas Network Access |
 | `Unauthorized` on stage buttons | The user needs `dbAdmin` on the demo database for `collMod` |
 | Search disabled, "building" | Wait; check `npm run search:status` |
+| "Maintenance in progress" banner that doesn't clear | Another setup, reset, or re-anchor is running; a lock from a crashed process expires after 10 minutes |
+| Page unreachable from another machine | By design: set `HOST=0.0.0.0` and `ADMIN_TOKEN` to expose it |
+| 415 or 403 from scripts calling the API | Send `Content-Type: application/json`, and no foreign `Origin` header |
 | Search UNAVAILABLE | The cluster tier or user cannot manage Search indexes; create them in the Atlas UI |
 | Constraint button disabled | The server is earlier than 9.0; the UI shows the reported version |
 | Constraint fails with a validation error | Repair or remove the listed invalid documents, then retry |
@@ -111,3 +118,13 @@ Integration tests **skip with an explicit message** when `MONGODB_URI` is not se
 | Change stream `reconnecting` | It resumes automatically from the last resume token; if history was lost, it restarts and the page resyncs |
 
 Connection strings are never logged. Errors show only the host name (see `redact`/`targetLabel` in `src/config.js`).
+
+## Access and safety
+
+The demo can drop and reseed its database, so the server protects its write API (`src/requestGuard.js`):
+
+- **Local only by default.** It listens on `127.0.0.1`. Setting `HOST` to anything else, such as `0.0.0.0`, refuses to start unless `ADMIN_TOKEN` is also set.
+- **No cross-site writes.** POST requests must be `Content-Type: application/json`, and any `Origin` header must match the page. This stops another website you visit from calling the API in the background. Requests with an unexpected `Host` header are rejected, which blocks DNS-rebinding pages.
+- **Optional admin token.** With `ADMIN_TOKEN` set, every change needs it in `X-Admin-Token`. The page asks for it once per browser tab.
+- **Browser hardening.** Pages are served with a strict Content-Security-Policy, and every dynamic value is HTML-escaped before rendering.
+- **Clear errors.** Caller mistakes return 400, 404, or 409 with a message; 500 is reserved for real server faults.

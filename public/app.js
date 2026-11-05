@@ -13,6 +13,17 @@ export function showBanner(html, bad = false) {
   el.className = `banner${bad ? ' bad' : ''}${html ? '' : ' hidden'}`;
 }
 
+// While maintenance runs, buttons are disabled and status is polled in case a change event is missed.
+let maintenancePoll = null;
+function setMaintenance(active) {
+  document.body.classList.toggle('maintenance', active);
+  if (active && !maintenancePoll) maintenancePoll = setInterval(() => refreshAll(), 3000);
+  if (!active && maintenancePoll) {
+    clearInterval(maintenancePoll);
+    maintenancePoll = null;
+  }
+}
+
 async function loadStatus() {
   const s = await api('/api/status');
   $('dbName').textContent = s.database;
@@ -25,12 +36,18 @@ async function loadStatus() {
   }
   pill.className = 'pill ok';
   pill.textContent = `Atlas ${s.server.version} · ${s.target} · db ${s.database}`;
+  setMaintenance(!!s.maintenance?.active);
+  if (s.maintenance?.active) {
+    showBanner(`<b>Maintenance in progress (${esc(s.maintenance.op)}).</b> Views and buttons are paused and resume automatically when it finishes.`);
+    return false;
+  }
   if (s.error) {
     showBanner(esc(s.error), true);
     return false;
   }
   if (!s.init.initialized) {
-    showBanner(`<b>The demo database is not initialized.</b> Missing: ${esc(s.init.missing.join(', ') || 'seed data')}. <button id="initBtn">Initialize demo data</button>`);
+    const problems = s.init.problems?.length ? s.init.problems : ['seed data'];
+    showBanner(`<b>The demo database is not ready.</b> ${problems.map(esc).join('; ')}. <button id="initBtn">Initialize demo data</button>`);
     return false;
   }
   showBanner(
@@ -107,6 +124,7 @@ const liveRefresh = debounce(async (colls) => {
   const jobs = [];
   if (colls.has('operational_events') || colls.has('tracked_entities')) jobs.push(refreshOverview(), refreshValidation());
   if (colls.has('exceptions')) jobs.push(refreshExceptions(), refreshOverview());
+  if (colls.has('demo_state')) jobs.push(refreshValidation());
   await Promise.allSettled(jobs);
   colls.clear();
 }, 250);
@@ -128,6 +146,8 @@ function startStream() {
     $('activity').prepend(li);
     while ($('activity').children.length > 60) $('activity').lastChild.remove();
     if (c.coll === 'operational_events' && c.op === 'insert') state.flashId = c.id;
+    if (c.coll === 'demo_state' && c.id === 'maintenance') return refreshAll();
+    if (document.body.classList.contains('maintenance')) return; // refresh once when maintenance ends
     if (!c.profile || c.profile === state.profileId) {
       pending.add(c.coll);
       liveRefresh(pending);

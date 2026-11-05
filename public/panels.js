@@ -96,7 +96,7 @@ export function renderDetail(e, profile) {
       <button data-act="assign" class="secondary" ${can('assign') ? '' : 'disabled'}>Assign</button>
     </div>
     <div class="row">
-      <input id="excNote" placeholder="note or resolution" style="flex:1" />
+      <input id="excNote" class="grow" placeholder="note or resolution" />
       <button data-act="note" class="secondary">Add note</button>
       <button data-act="resolve" ${can('resolve') ? '' : 'disabled'}>Resolve</button>
     </div>

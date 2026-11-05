@@ -1,11 +1,18 @@
 export const $ = (id) => document.getElementById(id);
 
-export async function api(path, { method = 'GET', body } = {}) {
-  const res = await fetch(path, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
+// The server rejects POSTs that are not application/json, so every write sends a JSON body.
+export async function api(path, { method = 'GET', body, retried = false } = {}) {
+  const headers = method === 'POST' ? { 'Content-Type': 'application/json' } : {};
+  const token = sessionStorage.getItem('adminToken');
+  if (method === 'POST' && token) headers['X-Admin-Token'] = token;
+  const res = await fetch(path, { method, headers, body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined });
+  if (res.status === 401 && method === 'POST' && !retried) {
+    const entered = prompt('This demo requires the admin token (ADMIN_TOKEN) for changes:');
+    if (entered) {
+      sessionStorage.setItem('adminToken', entered);
+      return api(path, { method, body, retried: true });
+    }
+  }
   const data = await res.json().catch(() => ({ error: res.statusText }));
   if (!res.ok) {
     const err = new Error(data.error || res.statusText);
