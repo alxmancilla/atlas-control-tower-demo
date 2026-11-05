@@ -11,6 +11,7 @@ import { createSearchIndexes, runSearch, searchStatus, SearchUnavailableError, S
 import { insertInvalidSample, insertValidEvent, removeInvalid, repairInvalid, transitionStage, validationState } from './services/validation.js';
 import { cachedIsInitialized, resetDemo, setupDemo } from './services/setup.js';
 import { reanchorDemo } from './services/reanchor.js';
+import { isStale, recomputeImpact } from './services/impact.js';
 
 export class HttpError extends StatusError {}
 
@@ -43,6 +44,8 @@ export const routes = {
       exceptionSummary(db, profile),
     ]);
     if (!overview) throw new HttpError(404, 'Demo data not found for this profile. Initialize the demo database first.');
+    // The stored impact is a time-based estimate; refresh it when it is older than IMPACT_MAX_AGE_MS.
+    if (isStale(overview.businessImpact)) overview.businessImpact = await recomputeImpact(db, profile);
     return { ...overview, reliability, exceptionSummary: exceptions };
   },
   'GET /api/timeline': async ({ db, profile }) => ({ events: await timeline(db, profile, invalidDocumentsFilter()) }),

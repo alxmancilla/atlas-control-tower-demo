@@ -7,6 +7,7 @@ export const COLL = {
   events: 'operational_events',
   exceptions: 'exceptions',
   telemetry: 'telemetry_readings',
+  positions: 'inventory_positions',
   state: 'demo_state',
 };
 
@@ -31,6 +32,8 @@ export const INDEXES = [
     reason: 'Exception queue filtered by status and ordered by SLA.' },
   { coll: COLL.exceptions, key: { trackedEntityId: 1, status: 1 }, options: { name: 'entity_status' },
     reason: 'Join target for the overview $lookup: open exceptions per tracked entity.' },
+  { coll: COLL.positions, key: { locationId: 1, itemRef: 1 }, options: { unique: true, name: 'location_item_unique' },
+    reason: 'One stock position per location and item; join target for the business-impact $lookup.' },
   { coll: COLL.telemetry, key: { 'meta.trackedEntityId': 1, 'meta.metric': 1, ts: 1 }, options: { name: 'meta_entity_metric_ts' },
     reason: 'Recent readings for one entity and metric (secondary index on the time-series metaField).' },
 ];
@@ -78,7 +81,7 @@ export async function collectionInfo(db) {
 export async function ensureSetup(db) {
   const existing = await collectionInfo(db);
   const created = [];
-  for (const name of [COLL.entities, COLL.events, COLL.exceptions, COLL.state]) {
+  for (const name of [COLL.entities, COLL.events, COLL.exceptions, COLL.positions, COLL.state]) {
     if (!existing[name]) {
       await db.createCollection(name);
       created.push(name);

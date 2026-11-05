@@ -40,7 +40,19 @@ export function entityPipeline(profile) {
       },
     },
     {
+      // Stock at the destination for the shipped item (index location_item_unique).
+      $lookup: {
+        from: COLL.positions,
+        localField: 'destination.id',
+        foreignField: 'locationId',
+        let: { item: '$product.ref' },
+        pipeline: [{ $match: { $expr: { $eq: ['$itemRef', '$$item'] } } }, { $project: { _id: 0, onHand: 1, unit: 1, consumptionPerHour: 1, updatedAt: 1 } }],
+        as: 'position',
+      },
+    },
+    {
       $set: {
+        position: { $first: '$position' },
         milestones: {
           $map: {
             input: { $sortArray: { input: '$plannedMilestones', sortBy: { sequence: 1 } } },
@@ -93,6 +105,8 @@ export async function entityOverview(db, profile, now = new Date()) {
     latestReliableMilestone: doc.latestReliableMilestone ?? null,
     openExceptionCount: doc.openExceptionCount,
     openExceptionsBySeverity: Object.fromEntries(doc.openExceptions.map((x) => [x._id, x.n])),
+    position: doc.position ?? null,
+    businessImpact: doc.businessImpact ?? null,
     assessment,
     evaluatedAt: now,
   };

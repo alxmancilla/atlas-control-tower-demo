@@ -5,6 +5,7 @@ import { detectStage } from '../domain/schema.js';
 import { ingestEvent } from './events.js';
 import { applyExceptionAction, exceptionKeyFor } from './exceptions.js';
 import { seedTelemetry } from './telemetry.js';
+import { recomputeImpact, seedPosition } from './impact.js';
 import { createSearchIndexes } from './search.js';
 import { memo, invalidate } from './cache.js';
 import { BadRequestError } from '../errors.js';
@@ -21,6 +22,7 @@ export async function seedProfile(db, profile, now = new Date()) {
   const up = await entities.updateOne({ trackedEntityId: fresh.trackedEntityId }, { $setOnInsert: fresh }, { upsert: true });
   if (up.upsertedCount) report.entity = 'created';
   const { anchorAt } = await entities.findOne({ trackedEntityId: fresh.trackedEntityId }, { projection: { anchorAt: 1 } });
+  report.position = await seedPosition(db, profile, now);
 
   const ordered = [...profile.seedEvents].sort((a, b) => a.eventTimeOffsetMin - b.eventTimeOffsetMin);
   for (const spec of ordered) {
@@ -55,6 +57,7 @@ export async function seedProfile(db, profile, now = new Date()) {
     }
   }
   report.telemetry = await seedTelemetry(db, profile, anchorAt);
+  report.businessImpact = (await recomputeImpact(db, profile))?.level ?? null;
   return report;
 }
 
@@ -101,15 +104,17 @@ export async function isInitialized(db) {
     const absent = INDEXES.filter((i) => i.coll === coll && !names.has(i.options.name)).map((i) => i.options.name);
     if (absent.length) problems.push(`Missing indexes on ${coll}: ${absent.join(', ')}`);
   }
-  const [entities, seeded] = await Promise.all([
+  const [entities, seeded, positions] = await Promise.all([
     db.collection(COLL.entities).aggregate([{ $group: { _id: '$profile' } }]).toArray(),
     db.collection(COLL.events).aggregate([{ $match: { 'demo.seeded': true } }, { $group: { _id: '$profile' } }]).toArray(),
+    db.collection(COLL.positions).aggregate([{ $group: { _id: '$profile' } }]).toArray(),
   ]);
   const has = (rows) => new Set(rows.map((r) => r._id));
-  const [withEntity, withSeed] = [has(entities), has(seeded)];
+  const [withEntity, withSeed, withPosition] = [has(entities), has(seeded), has(positions)];
   for (const id of Object.keys(PROFILES)) {
     if (!withEntity.has(id)) problems.push(`Profile ${id} has no tracked entity`);
     else if (!withSeed.has(id)) problems.push(`Profile ${id} has no seed events`);
+    if (!withPosition.has(id)) problems.push(`Profile ${id} has no inventory position`);
   }
   return { initialized: problems.length === 0, missing, problems, profiles: withEntity.size };
 }

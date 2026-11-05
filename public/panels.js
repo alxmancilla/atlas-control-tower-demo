@@ -1,5 +1,13 @@
 import { $, esc, fmtTime, fmtMin, badge, STATUS_TONE } from './lib.js';
 
+export const IMPACT_TONE = { critical: 'red', high: 'red', watch: 'amber', none: 'green' };
+
+function impactText(i) {
+  if (!i) return '—';
+  const short = i.shortfallHours > 0 ? ` ${i.shortfallHours} h short (${i.unitsShort} ${esc(i.unit)})` : '';
+  return `${badge(i.level, IMPACT_TONE[i.level])}${short}<ul class="reasons">${(i.reasons ?? []).map((r) => `<li>${esc(r)}</li>`).join('')}</ul>`;
+}
+
 export function renderOverview(o, profile) {
   const a = o.assessment;
   const sev = o.openExceptionsBySeverity;
@@ -12,6 +20,7 @@ export function renderOverview(o, profile) {
     kpi('Latest reliable milestone', o.latestReliableMilestone ? `${esc(o.latestReliableMilestone.label)}<div class="small muted">${fmtTime(o.latestReliableMilestone.actualTime)}</div>` : '—'),
     kpi('Next milestone', a.nextMilestone ? `${esc(a.nextMilestone.label)} ${badge(a.nextMilestone.status, STATUS_TONE[a.nextMilestone.status])}<div class="small muted">plan ${fmtTime(a.nextMilestone.plannedTime)}</div>` : 'all complete'),
     kpi('Milestone risk', `${badge(a.riskLevel, a.riskLevel === 'high' ? 'red' : a.riskLevel === 'medium' ? 'amber' : 'green')} projected final ${fmtMin(a.projectedFinalLateMin)}`),
+    kpi(profile.impact?.label ?? 'Business impact', impactText(o.businessImpact)),
     kpi('Open exceptions', `${o.openExceptionCount} ${sevText}${o.exceptionSummary.slaBreached ? ` ${badge(`${o.exceptionSummary.slaBreached} SLA breached`, 'red')}` : ''}`),
     kpi('Event reliability', `${badge(`${rel.duplicatesSuppressed} duplicates suppressed`, 'blue')}${badge(`${rel.byStatus.late ?? 0} late`, 'amber')}${badge(`${rel.byStatus.out_of_order ?? 0} out of order`, 'amber')}${rel.unlinked ? badge(`${rel.unlinked} unlinked`, 'red') : ''}`),
   ].join('');
@@ -38,6 +47,8 @@ const FLAG_LABEL = {
   future_event_time: 'event time in future',
 };
 
+const CHANNEL_LABEL = { edi: 'EDI', api: 'API', wms_scan: 'WMS scan', gps: 'GPS', iot: 'IoT', manual: 'manual', batch_file: 'batch file' };
+
 export function renderTimeline(events, rel, flashId) {
   $('relSummary').textContent = `${events.length} stored · ${rel.duplicatesSuppressed} duplicates suppressed`;
   const rows = events.map((e) => {
@@ -53,10 +64,14 @@ export function renderTimeline(events, rel, flashId) {
     }
     if (e.demo?.repairedAt) tags.push(badge('repaired', 'green'));
     const lag = r ? `${r.lagMinutes} min lag` : '';
+    const raw = e.details?.raw;
+    const rawBlock = raw
+      ? `<details class="raw"><summary>raw ${esc(CHANNEL_LABEL[e.channel] ?? e.channel ?? 'payload')}</summary><pre>${esc(typeof raw === 'string' ? raw.replaceAll('~', '~\n') : JSON.stringify(raw, null, 2))}</pre></details>`
+      : '';
     return `<tr class="${e._id === flashId ? 'flash' : ''}">
       <td>${e.eventTimeType === 'date' ? fmtTime(e.eventTime) : esc(e.eventTime)}<div class="small muted">rcv ${fmtTime(e.receivedAt)} ${lag}</div></td>
-      <td>${badge(e.eventType)}${e.milestoneId ? `<div class="small">${esc(e.milestoneId)}</div>` : ''}<div class="small muted">${esc(e.source)}</div></td>
-      <td>${esc(e.description)}<div>${tags.join('')}</div></td></tr>`;
+      <td>${badge(e.eventType)}${e.channel ? badge(CHANNEL_LABEL[e.channel] ?? e.channel, 'blue') : ''}${e.milestoneId ? `<div class="small">${esc(e.milestoneId)}</div>` : ''}<div class="small muted">${esc(e.source)}</div></td>
+      <td>${esc(e.description)}<div>${tags.join('')}</div>${rawBlock}</td></tr>`;
   });
   $('timeline').innerHTML = `<table><tr><th>Event time</th><th>Type / source</th><th>Event</th></tr>${rows.join('')}</table>`;
 }
@@ -71,13 +86,13 @@ export function renderQueue(queue, selectedId, summaryText) {
     (e, i) => `<tr class="clickable ${e.exceptionId === selectedId ? 'selected' : ''}" data-id="${esc(e.exceptionId)}">
       <td>${e.status === 'resolved' ? '' : i + 1}</td>
       <td>${esc(e.categoryLabel)}<div class="small muted">${esc(e.exceptionId)} · ${e.relatedEventIds.length} event${e.relatedEventIds.length > 1 ? 's' : ''}</div></td>
-      <td>${badge(e.severity, STATUS_TONE[e.severity])}${badge(e.status, STATUS_TONE[e.status])}</td>
+      <td>${badge(e.severity, STATUS_TONE[e.severity])}${badge(e.status, STATUS_TONE[e.status])}${e.status !== 'resolved' && e.businessImpact && e.businessImpact.level !== 'none' ? badge(`impact ${e.businessImpact.level}`, IMPACT_TONE[e.businessImpact.level]) : ''}</td>
       <td>${e.priority.score}<div class="small muted" title="${esc(e.priority.reasons.join('\n'))}">${esc(e.priority.reasons.slice(0, 2).join(', '))}</div></td>
       <td>${e.status === 'resolved' ? '—' : e.priority.minutesToSla < 0 ? badge(`breached ${-e.priority.minutesToSla} min`, 'red') : `${e.priority.minutesToSla} min`}</td>
       <td>${esc(e.owner ?? '—')}</td></tr>`
   );
   $('exceptionQueue').innerHTML = `<table><tr><th>#</th><th>Exception</th><th>Severity / status</th><th>Priority</th><th>SLA</th><th>Owner</th></tr>${rows.join('')}</table>
-    <p class="small muted">Priority = severity + SLA urgency + impact; acknowledged work is lowered slightly. Hover a score for every rule applied.</p>`;
+    <p class="small muted">Priority = severity + SLA urgency + category impact + business impact (stock cover vs. projected arrival); acknowledged work is lowered slightly. Hover a score for every rule applied.</p>`;
 }
 
 export function renderDetail(e, profile) {

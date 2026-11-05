@@ -74,8 +74,10 @@ function renderStatic() {
     .map((i) => `<tr><td>${esc(i.coll)}</td><td><code>${esc(JSON.stringify(i.key))}</code>${i.unique ? ' unique' : ''}</td><td>${esc(i.reason)}</td></tr>`)
     .join('')}</table><p>MongoDB Search: ${state.meta.searchIndexes.map((s) => `<code>${esc(s.name)}</code> on ${esc(s.collection)}`).join(', ')}</p>`;
   $('capabilities').innerHTML = [
-    ['Flexible document model', 'one event envelope with source-specific <code>details</code> across all sources'],
+    ['Flexible document model', 'one validated event envelope; EDI segments, WMS scans, GPS pings, IoT readings, and API webhooks keep their own raw shape in <code>details.raw</code>'],
+    ['Multi-document transactions', 'each event and its exception work item commit together (look for <b>txn</b> in the activity log)'],
     ['Aggregation pipeline', '<code>$lookup</code> + <code>$group</code> derive planned-versus-actual; <code>$facet</code> summarizes reliability'],
+    ['Computed pattern', 'business impact (stock cover vs. projected arrival) is derived on write via <code>$lookup</code> into inventory_positions and stored on the entity and open exceptions'],
     ['Unique indexes', 'idempotencyKey and exceptionKey make duplicate processing safe'],
     ['Change streams', 'database-level stream with resume tokens drives this page (SSE)'],
     ['MongoDB Search', '<code>$search</code> with highlights over event descriptions and exception notes'],
@@ -142,7 +144,7 @@ function startStream() {
   es.addEventListener('change', (e) => {
     const c = JSON.parse(e.data);
     const li = document.createElement('li');
-    li.innerHTML = `${fmtTime(c.clusterTime ?? Date.now())} <b>${esc(c.op)}</b> ${esc(c.coll)} ${esc(c.profile ?? '')} ${esc(c.exceptionId ?? c.eventType ?? '')} ${c.updatedFields.length ? `<span class="muted">[${esc(c.updatedFields.slice(0, 4).join(', '))}]</span>` : ''}`;
+    li.innerHTML = `${fmtTime(c.clusterTime ?? Date.now())} ${c.txn ? `<span class="badge b-green" title="committed in one multi-document transaction">txn ${esc(c.txn)}</span>` : ''}<b>${esc(c.op)}</b> ${esc(c.coll)} ${esc(c.profile ?? '')} ${esc(c.exceptionId ?? c.eventType ?? '')} ${c.updatedFields.length ? `<span class="muted">[${esc(c.updatedFields.slice(0, 4).join(', '))}]</span>` : ''}`;
     $('activity').prepend(li);
     while ($('activity').children.length > 60) $('activity').lastChild.remove();
     if (c.coll === 'operational_events' && c.op === 'insert') state.flashId = c.id;

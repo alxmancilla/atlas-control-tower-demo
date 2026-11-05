@@ -23,6 +23,8 @@ export function summarizeChange(change) {
     exceptionStatus: change.ns?.coll === COLL.exceptions ? doc.status ?? null : null,
     description: doc.description ?? doc.summary ?? null,
     updatedFields: change.updateDescription ? Object.keys(change.updateDescription.updatedFields ?? {}) : [],
+    // Change events written inside a multi-document transaction carry the session's txnNumber.
+    txn: change.txnNumber != null ? String(change.txnNumber) : null,
     clusterTime: change.clusterTime?.t ? new Date(change.clusterTime.t * 1000) : null,
   };
 }

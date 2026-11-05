@@ -1,5 +1,6 @@
 import { PROFILE_IDS } from '../profiles/index.js';
 import { BadRequestError } from '../errors.js';
+import { CHANNELS } from './documents.js';
 
 // Proposed operational_events schema. Uses only $jsonSchema keywords MongoDB documents:
 // bsonType, required, properties, enum, minLength, description.
@@ -16,6 +17,7 @@ export const operationalEventSchema = {
     source: { bsonType: 'string', minLength: 1 },
     sourceEventId: { bsonType: 'string', minLength: 1 },
     idempotencyKey: { bsonType: 'string', minLength: 1, description: 'required: source + sourceEventId, unique' },
+    channel: { enum: CHANNELS, description: 'optional: how the event arrived; legacy feeds may omit it' },
     milestoneId: { bsonType: 'string' },
     details: { bsonType: 'object', description: 'source-specific fields stay flexible' },
   },

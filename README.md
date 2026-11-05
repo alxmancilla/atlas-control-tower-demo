@@ -49,10 +49,13 @@ npm run reanchor
 | Collection | Purpose |
 |---|---|
 | `tracked_entities` | One document per tracked item, with the planned milestones embedded |
-| `operational_events` | Shared envelope (`trackedEntityId`, `eventType`, `eventTime`, `receivedAt`, `source`, `sourceEventId`, `idempotencyKey`) plus a flexible `details` object per source, and a computed `reliability` sub-document |
-| `exceptions` | One work item per entity + category (`exceptionKey`), with severity, SLA, owner, related events, and an embedded audit trail capped at the newest 100 entries (`$push` with `$slice`) |
+| `operational_events` | Shared envelope (`trackedEntityId`, `eventType`, `eventTime`, `receivedAt`, `source`, `channel`, `sourceEventId`, `idempotencyKey`) plus a flexible `details` object per source, with the original message in `details.raw`, and a computed `reliability` sub-document |
+| `exceptions` | One work item per entity + category (`exceptionKey`), with severity, SLA, owner, related events, a copy of the current business impact, and an embedded audit trail capped at the newest 100 entries (`$push` with `$slice`) |
+| `inventory_positions` | Stock at a location for an item (on hand, consumption rate), one per `locationId` + `itemRef`; the business-impact join target |
 | `telemetry_readings` | **Time-series** collection (`timeField: ts`, `metaField: meta`) |
-| `demo_state` | The persisted validation stage and its history |
+| `demo_state` | The persisted validation stage, its history, and the maintenance lock |
+
+**One collection, many source formats.** Each event records its `channel` (`edi`, `api`, `wms_scan`, `gps`, `iot`, `manual`, `batch_file`) and keeps the source's own payload in `details.raw`: an EDI 214 or 856 segment string, a WMS scan record, a GPS ping, an IoT logger reading, a webhook body, or a CSV row. The validator enforces the shared envelope and leaves `details` free, so a new source needs no schema migration. Expand **raw** on any timeline row to see it. Raw timestamps are written at ingest; re-anchoring shifts the envelope times but leaves raw payloads as received.
 
 Index reasons appear in the UI (**Atlas capabilities → Indexes**) and in `src/db.js`. Two unique indexes carry the reliability guarantees. `idempotencyKey` stops a duplicate source event from being stored twice. `exceptionKey` stops repeated reports from opening a second work item.
 
@@ -63,10 +66,13 @@ Index reasons appear in the UI (**Atlas capabilities → Indexes**) and in `src/
 - **Out of order**: the `eventTime` is older than the newest stored event for the entity.
 - **Milestone actual time**: the aggregation (`src/services/overview.js`) takes the *earliest* report per milestone, and status is derived from milestone *sequence*. A late or re-sent event can therefore add a report, but it cannot move the timeline backward.
 - **Milestone risk** (`src/domain/milestoneRisk.js`): `completed_late` beyond tolerance; `missed` past planned time plus grace, or skipped while a later milestone is complete; `at_risk` near due, inside grace, carrying upstream lateness, or over the dwell limit. Each status lists its reasons.
-- **Exception priority** (`src/domain/rules.js`): severity points + SLA breached or SLA soon + impact level, minus a small amount for acknowledged work. Hover a score in the UI to see every rule applied. Thresholds live in each profile file.
+- **Business impact** (`src/domain/impact.js`): hours of cover at the destination (on hand ÷ consumption per hour) compared with the projected arrival of the final milestone. A shortfall is `high`, a shortfall beyond the profile's critical threshold is `critical`, and a thin margin is `watch`. Each level lists its reasons, for example "3 h of cover; Received at store projected in 3.8 h; 0.8 h short: shelf empty at Store #1187 during the weekend promo".
+- **Exception priority** (`src/domain/rules.js`): severity points + SLA breached or SLA soon + category impact + business impact level, minus a small amount for acknowledged work. Hover a score in the UI to see every rule applied. Thresholds live in each profile file.
 
 ## Atlas capabilities shown
 
+- **Multi-document ACID transactions**: each ingested event and its exception work item commit together or not at all (`ingestEvent` in `src/services/events.js`). If opening the exception fails, the event insert is rolled back. A duplicate aborts the insert transaction, and a second transaction records the duplicate on the original. Change events from a transaction carry its `txnNumber`, shown as a **txn** badge in the activity log, so you can see the event and exception arrive as one unit.
+- **Computed pattern with `$lookup`**: the overview pipeline joins `inventory_positions` (by location, with a correlated match on the item), and the business-impact result is stored on write on the tracked entity and on its open exceptions. The exception queue ranks by impact without a join. The stored value is refreshed after every ingested event, after setup and re-anchor, and when it's more than 5 minutes old at read time.
 - **Change streams**: one database-level stream (`src/services/changeFeed.js`) with resume tokens and exponential-backoff reconnection, pushed to the browser over Server-Sent Events. Views refresh from the stream, not from button clicks. The header pill shows `live`, `reconnecting`, or `resuming`. Resume tokens are kept in memory, so they cover network blips while the server runs; after a server restart, the stream starts from "now" and the page reloads its data instead of replaying missed changes.
 - **MongoDB Search**: `$search` with fuzzy matching, highlights, and token filters by profile, source, and status, over event descriptions and notes and over exception summaries and resolution notes. Search stays disabled until Atlas reports both indexes `queryable: true`. The UI then shows MISSING, building, or UNAVAILABLE with the reason. The index definitions are in `SEARCH_INDEXES` in `src/services/search.js`, and you can paste them into the Atlas UI JSON editor if you prefer to create them manually.
 - **Time series**: a `$setWindowFields` moving average, range checks, and excursions. You can change the range in the UI. It is a demo threshold, not a compliance limit. Telemetry is queried on demand because **time-series collections do not support change streams or MongoDB Search**.
@@ -80,11 +86,11 @@ Index reasons appear in the UI (**Atlas capabilities → Indexes**) and in `src/
 
 ## Demo script (about 10 minutes, retail)
 
-1. **Overview**: the shipment's latest reliable milestone, next milestone, risk, and open exceptions. The seed already includes a missed pickup and a late departure.
-2. **Live event flow**: click *Carrier: arrived at cross-dock*. The activity log shows the change-stream insert, then the milestone and timeline refresh.
+1. **Overview**: the shipment's latest reliable milestone, next milestone, risk, open exceptions, and **Store shelf cover**: the delay leaves the store short before the shipment arrives. The seed already includes a missed pickup and a late departure.
+2. **Live event flow**: click *Carrier: arrived at cross-dock*. The activity log shows the change-stream insert, then the milestone and timeline refresh. Expand **raw EDI** on the new row: the same collection holds EDI segments, WMS scans, GPS pings, and webhook bodies.
 3. Click *Carrier: resend arrival (duplicate)*. The timeline shows "1 duplicate suppressed" and no new row.
 4. Click *WMS: departure scan uploaded 3h late*. The event is labeled **out of order** and **late**, and "Departed" still shows the original actual time with 2 reports.
-5. Click *Carrier: ETA slip alert*, then *Store: reports same delay*. One exception now has 2 related events and rises to the top of the queue. Acknowledge it, assign it, add a note, and resolve it, and watch the audit trail.
+5. Click *Carrier: ETA slip alert*, then *Store: reports same delay*. Each click commits the event and the exception in one transaction (the **txn** badge in the activity log). One exception now has 2 related events and rises to the top of the queue, with its business impact in the score. Acknowledge it, assign it, add a note, and resolve it, and watch the audit trail. Later, *Carrier: out for delivery* (a GPS geofence ping) and *Store: received* bring the shelf cover back to `none`.
 6. **Search** for `delayed replenishment` or `traffic` and point out the highlights.
 7. **Telemetry**: click *Add out-of-range reading*, then *Run aggregation*. Tighten the range and run it again.
 8. **Data quality**: go to **Observe** and submit a legacy event. It is accepted and listed as invalid. Go to **Enforce** and submit the other legacy event. It is rejected and the server error is shown. Repair or remove the invalid records, then click **Constraint** (9.0+). Optionally, try Constraint while an invalid record exists to see the scan fail.

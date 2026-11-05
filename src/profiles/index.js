@@ -1,6 +1,7 @@
 import retail from './retail.js';
 import healthcare from './healthcare.js';
 import manufacturing from './manufacturing.js';
+import { CHANNELS } from '../domain/documents.js';
 
 export const PROFILES = { retail, healthcare, manufacturing };
 export const PROFILE_IDS = Object.keys(PROFILES);
@@ -30,8 +31,12 @@ export function validateProfile(p) {
     if (typeof p.risk?.[key] !== 'number') errors.push(`risk.${key} must be a number`);
   }
   const events = [...(p.seedEvents || []), ...(p.samples || []).filter((s) => !s.duplicateOf)];
+  for (const [id, s] of Object.entries(p.sources || {})) {
+    if (s.channel && !CHANNELS.includes(s.channel)) errors.push(`source ${id} uses unknown channel ${s.channel}`);
+  }
   for (const e of events) {
     if (!sources.includes(e.source)) errors.push(`event ${e.sourceEventId} uses unknown source ${e.source}`);
+    if (e.channel && !CHANNELS.includes(e.channel)) errors.push(`event ${e.sourceEventId} uses unknown channel ${e.channel}`);
     if (e.milestoneId && !milestoneIds.has(e.milestoneId)) errors.push(`event ${e.sourceEventId} uses unknown milestone`);
     if (e.exception && !categories.includes(e.exception.category)) errors.push(`event ${e.sourceEventId} uses unknown category`);
   }
@@ -39,6 +44,17 @@ export function validateProfile(p) {
     if (!p.samples.some((x) => x.id === s.duplicateOf)) errors.push(`sample ${s.id} duplicates unknown sample`);
   }
   if (p.telemetry?.enabled && !(p.telemetry.min < p.telemetry.max)) errors.push('telemetry.min must be below telemetry.max');
+  const pos = p.impact?.position;
+  if (!pos) errors.push('impact.position is required');
+  else {
+    if (pos.locationId !== p.entity?.destination?.id || pos.itemRef !== p.entity?.product?.ref) {
+      errors.push('impact.position must match entity.destination.id and entity.product.ref');
+    }
+    if (!(pos.onHand >= 0 && pos.consumptionPerHour > 0)) errors.push('impact.position needs onHand >= 0 and consumptionPerHour > 0');
+  }
+  for (const level of ['critical', 'high', 'watch', 'none']) {
+    if (typeof p.priority?.businessImpactPoints?.[level] !== 'number') errors.push(`priority.businessImpactPoints.${level} must be a number`);
+  }
   return errors;
 }
 
@@ -56,6 +72,7 @@ export function profileSummary(p) {
     exceptionCategories: p.exceptionCategories,
     priority: p.priority,
     telemetry: p.telemetry,
+    impact: p.impact,
     searchExamples: p.searchExamples,
     samples: p.samples.map(({ id, label, duplicateOf, eventType }) => ({ id, label, duplicateOf, eventType })),
     invalidSamples: p.invalidSamples.map(({ id, label, issue }) => ({ id, label, issue })),

@@ -2,6 +2,7 @@ import { COLL } from '../db.js';
 import { PROFILES } from '../profiles/index.js';
 import { invalidDocumentsFilter, operationalEventSchema } from '../domain/schema.js';
 import { seedTelemetry } from './telemetry.js';
+import { recomputeImpact } from './impact.js';
 
 // Adds `ms` to a field only when it holds a BSON date, so legacy string times stay untouched.
 const shift = (path, ms) => ({ $cond: [{ $eq: [{ $type: path }, 'date'] }, { $add: [path, ms] }, path] });
@@ -81,12 +82,14 @@ export async function reanchorDemo(db, now = new Date()) {
     const telemetry = db.collection(COLL.telemetry);
     const removed = await telemetry.deleteMany({ 'meta.trackedEntityId': profile.entity.trackedEntityId });
     const reseeded = await seedTelemetry(db, profile, now);
+    const impact = await recomputeImpact(db, profile, now);
     report.push({
       profile: profile.id,
       shiftedMin: Math.round(ms / 60000),
       events: valid.modifiedCount + invalid.modifiedCount,
       exceptions: exc.modifiedCount,
       telemetry: { removed: removed.deletedCount, inserted: reseeded.inserted },
+      businessImpact: impact?.level ?? null,
     });
   }
   return report;

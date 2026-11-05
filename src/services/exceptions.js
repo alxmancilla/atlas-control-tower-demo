@@ -15,8 +15,10 @@ export const exceptionKeyFor = (profileId, trackedEntityId, category) => `${prof
 /**
  * Opens a work item for (entity, category) or links the event to the existing one.
  * The unique exceptionKey index keeps this idempotent under retries and concurrent writers.
+ * With a session it joins the caller's transaction; a duplicate-key race then aborts that
+ * transaction and the caller retries.
  */
-export async function openOrUpdateException(db, profile, evt) {
+export async function openOrUpdateException(db, profile, evt, { session } = {}) {
   const coll = db.collection(COLL.exceptions);
   const category = evt.exception.category;
   const cfg = profile.exceptionCategories[category];
@@ -50,14 +52,15 @@ export async function openOrUpdateException(db, profile, evt) {
           audit: [{ at: now, action: 'opened', by: `source:${evt.source}`, note: evt.description, eventId: evt._id }],
         },
       },
-      { upsert: true }
+      { upsert: true, session }
     );
     if (res.upsertedCount === 1) return { outcome: 'opened', exceptionKey };
   } catch (err) {
-    if (err?.code !== 11000) throw err; // A concurrent writer created it first; fall through and link.
+    // Outside a transaction, a concurrent writer created it first: fall through and link.
+    if (err?.code !== 11000 || session?.inTransaction()) throw err;
   }
 
-  const current = await coll.findOne({ exceptionKey }, { projection: { status: 1, relatedEventIds: 1 } });
+  const current = await coll.findOne({ exceptionKey }, { projection: { status: 1, relatedEventIds: 1 }, session });
   if (current.relatedEventIds?.some((id) => String(id) === String(evt._id))) {
     return { outcome: 'already_linked', exceptionKey };
   }
@@ -68,7 +71,8 @@ export async function openOrUpdateException(db, profile, evt) {
       $addToSet: { relatedEventIds: evt._id },
       $set: { updatedAt: now, ...(reopen ? { status: 'open', resolution: null } : {}) },
       $push: pushAudit({ at: now, action: reopen ? 'reopened' : 'linked_event', by: `source:${evt.source}`, note: evt.description, eventId: evt._id }),
-    }
+    },
+    { session }
   );
   return { outcome: reopen ? 'reopened' : 'updated', exceptionKey };
 }

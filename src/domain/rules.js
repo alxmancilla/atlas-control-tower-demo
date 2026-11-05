@@ -23,6 +23,14 @@ export function prioritizeException(exc, now, rules) {
   score += impact;
   reasons.push(`impact level ${exc.impact ?? 0} +${impact}`);
 
+  const level = exc.businessImpact?.level;
+  const bizPoints = level ? rules.businessImpactPoints?.[level] ?? 0 : 0;
+  if (bizPoints) {
+    score += bizPoints;
+    const short = exc.businessImpact.shortfallHours ? ` (${exc.businessImpact.shortfallHours} h short)` : '';
+    reasons.push(`business impact ${level}${short} +${bizPoints}`);
+  }
+
   if (exc.status === 'acknowledged') {
     score += rules.acknowledgedPoints;
     reasons.push(`acknowledged ${rules.acknowledgedPoints}`);

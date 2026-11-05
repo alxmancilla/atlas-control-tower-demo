@@ -6,7 +6,7 @@ import { getProfile } from '../../src/profiles/index.js';
 import { resetDemo, setupDemo, isInitialized } from '../../src/services/setup.js';
 import { withMaintenance, maintenanceState } from '../../src/services/maintenance.js';
 import { handleApi, statusFor } from '../../src/api.js';
-import { triggerSample } from '../../src/services/events.js';
+import { triggerSample, ingestEvent } from '../../src/services/events.js';
 import { applyExceptionAction, exceptionQueue, AUDIT_MAX } from '../../src/services/exceptions.js';
 import { entityOverview } from '../../src/services/overview.js';
 import { telemetryView } from '../../src/services/telemetry.js';
@@ -14,8 +14,9 @@ import { insertInvalidSample, repairInvalid, removeInvalid, transitionStage, fin
 import { searchStatus } from '../../src/services/search.js';
 import { ChangeFeed } from '../../src/services/changeFeed.js';
 import { reanchorDemo, demoClockAge } from '../../src/services/reanchor.js';
+import { IMPACT_LEVELS } from '../../src/domain/impact.js';
 import { entityPipeline } from '../../src/services/overview.js';
-import { byIdempotencyKey, idempotencyKey } from '../../src/domain/documents.js';
+import { buildEvent, byIdempotencyKey, idempotencyKey } from '../../src/domain/documents.js';
 
 // Runs against a real Atlas cluster only. No mocks, no local substitute.
 const skip = process.env.MONGODB_URI ? false : 'MONGODB_URI not set: Atlas integration tests skipped (see README "Testing")';
@@ -242,6 +243,50 @@ test('API returns 4xx for caller mistakes', { skip }, async () => {
   assert.equal(await call('POST', '/api/validation/remove', { id: '000000000000000000000000' }), 404);
   assert.equal(await call('GET', '/api/overview?profile=unknown'), 400);
   assert.equal(await call('POST', '/api/setup', ['not', 'an', 'object']), 400);
+});
+
+test('ingest is transactional: a failure after the event insert rolls the event back', { skip }, async () => {
+  const bad = buildEvent(profile, { source: 'carrier', eventType: 'exception', sourceEventId: `TXN-ROLLBACK-${Date.now()}`,
+    exception: { category: 'no_such_category' }, description: 'rollback probe' }, { now: new Date() });
+  await assert.rejects(ingestEvent(db, profile, bad), /Unknown exception category/);
+  assert.equal(await db.collection(COLL.events).countDocuments(byIdempotencyKey(bad.idempotencyKey)), 0, 'event must not survive the aborted transaction');
+
+  const feed = new ChangeFeed(db).start();
+  try {
+    await new Promise((resolve) => feed.on('status', (s) => s.state === 'live' && resolve()));
+    const seen = [];
+    const both = new Promise((resolve) =>
+      feed.on('change', (c) => {
+        if (c.txn && (c.coll === COLL.events || c.coll === COLL.exceptions)) seen.push(c);
+        if (new Set(seen.map((x) => x.coll)).size === 2) resolve();
+      })
+    );
+    // A new report for an existing work item: the event insert and the exception update share one transaction.
+    const report = buildEvent(profile, { source: 'store_receiving', eventType: 'exception', sourceEventId: `TXN-LINK-${Date.now()}`,
+      exception: { category: 'delivery_delay' }, description: 'Store follow-up on delayed replenishment' }, { now: new Date() });
+    const res = await ingestEvent(db, profile, report);
+    assert.equal(res.transactional, true);
+    assert.ok(['opened', 'updated', 'reopened'].includes(res.exception.outcome), res.exception.outcome);
+    await Promise.race([both, new Promise((_, r) => setTimeout(() => r(new Error('no transactional change events')), 15000))]);
+    assert.equal(new Set(seen.map((c) => c.txn)).size, 1, 'event and exception share one transaction');
+  } finally {
+    await feed.stop();
+  }
+});
+
+test('business impact is computed on write and ranks exceptions', { skip }, async () => {
+  const entity = await db.collection(COLL.entities).findOne({ trackedEntityId: profile.entity.trackedEntityId });
+  assert.ok(IMPACT_LEVELS.includes(entity.businessImpact.level), JSON.stringify(entity.businessImpact));
+  assert.ok(entity.businessImpact.coverHours === 3, 'cover comes from the joined inventory position (60 cases at 20/h)');
+  const open = await db.collection(COLL.exceptions).find({ trackedEntityId: profile.entity.trackedEntityId, status: { $ne: 'resolved' } }).toArray();
+  assert.ok(open.length > 0 && open.every((e) => e.businessImpact?.level === entity.businessImpact.level));
+  const [top] = await exceptionQueue(db, profile);
+  if (['high', 'critical'].includes(entity.businessImpact.level)) assert.match(top.priority.reasons.join(' '), /business impact/);
+
+  for (const id of ['out_for_delivery', 'received']) await triggerSample(db, profile, id);
+  const after = await db.collection(COLL.entities).findOne({ trackedEntityId: profile.entity.trackedEntityId });
+  assert.equal(after.businessImpact.level, 'none');
+  assert.match(after.businessImpact.reasons[0], /supply restored/);
 });
 
 test('search status reports index state without throwing', { skip }, async () => {

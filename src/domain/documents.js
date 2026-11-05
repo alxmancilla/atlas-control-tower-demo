@@ -29,18 +29,39 @@ export function buildTrackedEntity(profile, anchorAt) {
   };
 }
 
-// Shared event envelope. Source-specific fields live in `details`.
+// How an event reached the platform. Each channel keeps its own raw payload shape in details.raw.
+export const CHANNELS = ['edi', 'api', 'wms_scan', 'gps', 'iot', 'manual', 'batch_file'];
+
+const pad = (n) => String(n).padStart(2, '0');
+// Fills {{date}} (CCYYMMDD), {{time}} (HHMM), and {{iso}} in raw payload strings so the
+// source's own timestamp matches the envelope's eventTime.
+export function fillTemplates(value, when) {
+  if (typeof value === 'string') {
+    const d = new Date(when);
+    return value
+      .replaceAll('{{date}}', `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`)
+      .replaceAll('{{time}}', `${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`)
+      .replaceAll('{{iso}}', d.toISOString());
+  }
+  if (Array.isArray(value)) return value.map((v) => fillTemplates(v, when));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillTemplates(v, when)]));
+  return value;
+}
+
+// Shared event envelope. Source- and channel-specific fields live in `details`.
 export function buildEvent(profile, spec, { now, seeded = false }) {
+  const eventTime = addMinutes(now, spec.eventTimeOffsetMin ?? 0);
   const evt = {
     trackedEntityId: profile.entity.trackedEntityId,
     profile: profile.id,
     eventType: spec.eventType,
-    eventTime: addMinutes(now, spec.eventTimeOffsetMin ?? 0),
+    eventTime,
     source: spec.source,
+    channel: spec.channel ?? profile.sources[spec.source]?.channel ?? 'api',
     sourceEventId: spec.sourceEventId,
     idempotencyKey: idempotencyKey(spec.source, spec.sourceEventId),
     description: spec.description,
-    details: spec.details ?? {},
+    details: fillTemplates(spec.details ?? {}, eventTime),
     demo: { seeded },
   };
   if (spec.milestoneId) evt.milestoneId = spec.milestoneId;

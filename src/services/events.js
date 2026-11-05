@@ -3,19 +3,45 @@ import { classifyArrival } from '../domain/rules.js';
 import { buildEvent, byIdempotencyKey, idempotencyKey } from '../domain/documents.js';
 import { openOrUpdateException } from './exceptions.js';
 import { BadRequestError } from '../errors.js';
+import { recomputeImpact } from './impact.js';
 
 const isDuplicateKey = (err, field) => err?.code === 11000 && (!field || String(err.message).includes(field));
 
+// withTransaction retries the callback on transient errors (such as write conflicts), so callbacks
+// build fresh documents on every attempt.
+const inTransaction = (db, fn) => db.client.withSession((session) => session.withTransaction(() => fn(session)));
+
 /**
- * Ingests one event. The unique idempotencyKey index makes duplicate processing safe:
- * a duplicate never creates a second event or a second exception.
+ * Ingests one event in a multi-document transaction: the event and its exception work item commit
+ * together or not at all. The unique idempotencyKey index makes duplicates safe: the insert fails,
+ * the transaction rolls back, and a second transaction records the duplicate on the original event.
  */
 export async function ingestEvent(db, profile, evt, { receivedAt = new Date() } = {}) {
-  const events = db.collection(COLL.events);
-  const doc = { ...evt, receivedAt: new Date(receivedAt) };
+  const base = { ...evt, receivedAt: new Date(receivedAt) };
+  let result;
+  for (let attempt = 1; !result; attempt++) {
+    try {
+      result = await inTransaction(db, (session) => insertNew(db, profile, { ...base }, session));
+    } catch (err) {
+      if (isDuplicateKey(err, 'idempotencyKey')) result = await inTransaction(db, (session) => recordDuplicate(db, profile, base, session));
+      // A concurrent writer opened the same work item first; the retry finds it and links to it.
+      else if (isDuplicateKey(err, 'exceptionKey') && attempt < 3) continue;
+      else throw err;
+    }
+  }
+  // Derived data is refreshed after commit; a failure here never undoes the committed event.
+  try {
+    result.impact = await recomputeImpact(db, profile);
+  } catch (err) {
+    result.impactError = err.message;
+  }
+  return result;
+}
 
+async function insertNew(db, profile, doc, session) {
+  const events = db.collection(COLL.events);
   const [latest] = await events
-    .find({ trackedEntityId: doc.trackedEntityId, eventTime: { $type: 'date' } })
+    .find({ trackedEntityId: doc.trackedEntityId, eventTime: { $type: 'date' } }, { session })
     .sort({ eventTime: -1 })
     .limit(1)
     .project({ eventTime: 1 })
@@ -23,7 +49,7 @@ export async function ingestEvent(db, profile, evt, { receivedAt = new Date() } 
   let milestoneRecordedAt = null;
   if (doc.milestoneId) {
     const [first] = await events
-      .find({ trackedEntityId: doc.trackedEntityId, milestoneId: doc.milestoneId, eventTime: { $type: 'date' } })
+      .find({ trackedEntityId: doc.trackedEntityId, milestoneId: doc.milestoneId, eventTime: { $type: 'date' } }, { session })
       .sort({ eventTime: 1 })
       .limit(1)
       .project({ eventTime: 1 })
@@ -37,24 +63,21 @@ export async function ingestEvent(db, profile, evt, { receivedAt = new Date() } 
     ),
     duplicateCount: 0,
   };
+  const res = await events.insertOne(doc, { session });
+  doc._id = res.insertedId;
+  const exception = doc.exception?.category ? await openOrUpdateException(db, profile, doc, { session }) : null;
+  return { outcome: doc.reliability.status, event: doc, exception, transactional: true };
+}
 
-  try {
-    const res = await events.insertOne(doc);
-    doc._id = res.insertedId;
-  } catch (err) {
-    if (!isDuplicateKey(err, 'idempotencyKey')) throw err;
-    const original = await events.findOneAndUpdate(
-      byIdempotencyKey(doc.idempotencyKey),
-      { $inc: { 'reliability.duplicateCount': 1 }, $set: { 'reliability.lastDuplicateAt': doc.receivedAt } },
-      { returnDocument: 'after' }
-    );
-    // Re-linking is idempotent, so a retry after a partial failure still converges to one work item.
-    const exception = original?.exception?.category ? await openOrUpdateException(db, profile, original) : null;
-    return { outcome: 'deduplicated', event: original, exception };
-  }
-
-  const exception = doc.exception?.category ? await openOrUpdateException(db, profile, doc) : null;
-  return { outcome: doc.reliability.status, event: doc, exception };
+async function recordDuplicate(db, profile, doc, session) {
+  const original = await db.collection(COLL.events).findOneAndUpdate(
+    byIdempotencyKey(doc.idempotencyKey),
+    { $inc: { 'reliability.duplicateCount': 1 }, $set: { 'reliability.lastDuplicateAt': doc.receivedAt } },
+    { returnDocument: 'after', session }
+  );
+  // Re-linking is idempotent, so a retry after a partial failure still converges to one work item.
+  const exception = original?.exception?.category ? await openOrUpdateException(db, profile, original, { session }) : null;
+  return { outcome: 'deduplicated', event: original, exception, transactional: true };
 }
 
 export async function triggerSample(db, profile, sampleId, now = new Date()) {
