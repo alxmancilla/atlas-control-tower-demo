@@ -12,9 +12,10 @@ from .events import ingest_event
 from .exceptions import apply_exception_action, decide_recommended_action, exception_queue
 from .profiles import PROFILES, get_profile
 from .search import find_similar, run_search, search_status
-from .schemas import EventInput, ExceptionActionInput, RecommendationDecisionInput
+from .schemas import EventInput, ExceptionActionInput, RecommendationDecisionInput, TelemetryReadingInput
 from .security import guard_write_request
 from .services import entity_overview, kpi_snapshot, portfolio_overview
+from .telemetry import add_reading, telemetry_view
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -72,6 +73,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def get_search_status(request: Request):
         return await search_status(get_db(request.app))
 
+    @app.get("/api/telemetry")
+    async def telemetry(request: Request, profile: str | None = None, hours: float = 8, min: float | None = None, max: float | None = None):
+        return await telemetry_view(get_db(request.app), profile_from_query(profile), hours=hours, minimum=min, maximum=max)
+
     @app.get("/api/search")
     async def search(request: Request, q: str | None = None, profile: str | None = None, kind: str = "all", source: str | None = None, event_type: str | None = None, status: str | None = None, limit: int = 10):
         if not 1 <= limit <= 25:
@@ -93,6 +98,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def post_event(request: Request, body: EventInput, profile: str | None = None):
         selected = profile_from_query(profile)
         return await ingest_event(await write_ready(request, selected), selected, body)
+
+    @app.post("/api/telemetry/reading")
+    async def post_telemetry_reading(request: Request, body: TelemetryReadingInput, profile: str | None = None):
+        selected = profile_from_query(profile)
+        return await add_reading(await write_ready(request, selected), selected, body.kind)
 
     @app.post("/api/exceptions/{exception_id}/action")
     async def post_exception_action(request: Request, exception_id: str, body: ExceptionActionInput, profile: str | None = None):

@@ -18,16 +18,18 @@ The Python service defaults to port `8000`; set `PYTHON_PORT` to override it. It
 - `GET /api/overview?profile=retail`
 - `GET /api/portfolio?profile=retail`
 - `GET /api/kpis?profile=retail[&fresh=true]`
+- `GET /api/telemetry?profile=retail[&hours=8&min=1&max=4]`
 - `GET /api/search/status`
 - `GET /api/search?q=traffic&profile=retail`
 - `GET /api/exceptions?profile=retail`
 - `GET /api/exceptions/{exceptionId}/similar`
 - `POST /api/events?profile=retail`
+- `POST /api/telemetry/reading?profile=retail` (`{"kind":"normal"}` or `{"kind":"excursion"}`)
 - `POST /api/exceptions/{exceptionId}/action?profile=retail`
 - `POST /api/exceptions/{exceptionId}/recommendation?profile=retail`
 
 Event submission validates its source, milestone, and category against the selected profile. It stores an event and its exception work item in a multi-document transaction, suppresses duplicate source events using the Node-compatible `idempotencyKey`, and keeps a bounded exception audit trail. Operator actions support acknowledge, assign, note, resolve, and one-time accept/decline decisions for seeded recommendations.
 
-The overview and portfolio routes run their own MongoDB aggregations. The KPI route materializes one profile snapshot with `$merge` when it is missing or older than 15 seconds; add `fresh=true` to force immediate refresh. If the database is not initialized, it retains the original read-only live fallback. Setup/reset, telemetry, change streams, and the UI are later ports.
+The overview and portfolio routes run their own MongoDB aggregations. The KPI route materializes one profile snapshot with `$merge` when it is missing or older than 15 seconds; add `fresh=true` to force immediate refresh. The telemetry route uses the existing `telemetry_readings` time-series collection to calculate a six-reading moving average, range excursions, and summary statistics. Setup/reset, change streams, and the UI are later ports.
 
 Search routes are read-only. They report existing Atlas Search and Automated Embedding index readiness, and they refuse queries until the corresponding indexes are queryable. This Python service does not create or modify search indexes.

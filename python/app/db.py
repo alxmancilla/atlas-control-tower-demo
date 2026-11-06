@@ -13,6 +13,7 @@ COLLECTIONS = {
     "entities": "tracked_entities",
     "events": "operational_events",
     "exceptions": "exceptions",
+    "telemetry": "telemetry_readings",
     "kpis": "kpi_snapshots",
     "state": "demo_state",
 }

@@ -34,3 +34,7 @@ class RecommendationDecisionInput(BaseModel):
     operator: str | None = Field(default=None, max_length=500)
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class TelemetryReadingInput(BaseModel):
+    kind: str = Field(min_length=1, max_length=20)
