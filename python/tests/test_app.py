@@ -22,6 +22,17 @@ def test_health_and_profile_discovery_do_not_need_a_database():
         assert profiles["profiles"][0]["samples"][0]["id"] == "arrived_dc"
 
 
+def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
+    with client() as test_client:
+        page = test_client.get("/").text
+    for label in ("Operational overview", "Milestone risk", "Event reliability", "Exception workflow", "Active load portfolio", "Control tower KPIs", "Schema validation"):
+        assert label in page
+    assert "data-exception-action" in page
+    assert "data-recommendation" in page
+    assert "data-repair" in page
+    assert "const esc=" in page
+
+
 def test_status_is_safe_without_a_connection_string():
     with client() as test_client:
         status = test_client.get("/api/status").json()
