@@ -51,6 +51,26 @@ class Sample:
 
 
 @dataclass(frozen=True)
+class InvalidSample:
+    """A deliberately malformed legacy event, limited to the validation demonstration."""
+
+    id: str
+    issue: str
+    label: str
+    source: str
+    event_type: str
+    description: str
+    details: dict[str, object]
+    event_time_offset_min: int = 0
+    milestone_id: str | None = None
+    tracked_entity_id: str | None = None
+    event_time_string: bool = False
+
+    def public(self) -> dict[str, str]:
+        return {"id": self.id, "label": self.label, "issue": self.issue}
+
+
+@dataclass(frozen=True)
 class Profile:
     id: str
     label: str
@@ -63,6 +83,8 @@ class Profile:
     exception_categories: dict[str, ExceptionCategory]
     telemetry: Telemetry | None = None
     samples: tuple[Sample, ...] = ()
+    invalid_samples: tuple[InvalidSample, ...] = ()
+    legacy_references: tuple[str, ...] = ()
 
     def public(self) -> dict[str, object]:
         return {
@@ -77,6 +99,7 @@ class Profile:
             "exceptionCategories": {key: asdict(value) for key, value in self.exception_categories.items()},
             "telemetry": self.telemetry.public() if self.telemetry else {"enabled": False},
             "samples": [sample.public() for sample in self.samples],
+            "invalidSamples": [sample.public() for sample in self.invalid_samples],
         }
 
 
@@ -123,7 +146,27 @@ _SAMPLES = {
     ),
 }
 
-PROFILES = {profile_id: replace(profile, telemetry=_TELEMETRY[profile_id], samples=_SAMPLES[profile_id]) for profile_id, profile in PROFILES.items()}
+_INVALID_SAMPLES = {
+    "retail": (
+        InvalidSample("legacy_missing_entity", "missing_tracked_entity_id", "Legacy feed: no trackedEntityId", "legacy_edi", "milestone", "EDI 214 status AF received without shipment reference", {"legacyRef": "RO-77821", "ediCode": "AF"}, -60, "arrived_dc"),
+        InvalidSample("legacy_string_time", "event_time_is_string", "Legacy feed: eventTime as string", "legacy_edi", "status_note", "EDI status note with text timestamp", {"ediCode": "X6"}, -120, tracked_entity_id="RTL-SHP-24017", event_time_string=True),
+    ),
+    "healthcare": (
+        InvalidSample("legacy_missing_entity", "missing_tracked_entity_id", "Legacy feed: no trackedEntityId", "legacy_fax_import", "milestone", "Scanned courier sheet imported without transfer reference", {"legacyRef": "TO-55021", "pageCount": 1}, -50, "handoff"),
+        InvalidSample("legacy_string_time", "event_time_is_string", "Legacy feed: eventTime as string", "legacy_fax_import", "status_note", "Courier sheet note with handwritten time", {"pageCount": 1}, -100, tracked_entity_id="HC-TRF-3307", event_time_string=True),
+    ),
+    "manufacturing": (
+        InvalidSample("legacy_missing_entity", "missing_tracked_entity_id", "Legacy feed: no trackedEntityId", "legacy_csv_upload", "milestone", "Receiving CSV row without lot number", {"legacyRef": "PO-44190", "csvRow": 17}, -100, "dock_arrival"),
+        InvalidSample("legacy_string_time", "event_time_is_string", "Legacy feed: eventTime as string", "legacy_csv_upload", "status_note", "Receiving CSV row with text timestamp", {"csvRow": 18}, -80, tracked_entity_id="MFG-LOT-8842", event_time_string=True),
+    ),
+}
+
+_LEGACY_REFERENCES = {"retail": ("RO-77821",), "healthcare": ("TO-55021",), "manufacturing": ("PO-44190",)}
+
+PROFILES = {
+    profile_id: replace(profile, telemetry=_TELEMETRY[profile_id], samples=_SAMPLES[profile_id], invalid_samples=_INVALID_SAMPLES[profile_id], legacy_references=_LEGACY_REFERENCES[profile_id])
+    for profile_id, profile in PROFILES.items()
+}
 
 
 def get_profile(profile_id: str) -> Profile:

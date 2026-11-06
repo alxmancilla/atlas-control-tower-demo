@@ -45,3 +45,17 @@ class SampleEventInput(BaseModel):
     sample_id: str = Field(alias="sampleId", min_length=1, max_length=100)
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class ValidationStageInput(BaseModel):
+    stage: str = Field(min_length=1, max_length=20)
+
+
+class ValidationSampleInput(BaseModel):
+    sample_id: str = Field(alias="sampleId", min_length=1, max_length=100)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocumentIdInput(BaseModel):
+    id: str = Field(min_length=1, max_length=64)

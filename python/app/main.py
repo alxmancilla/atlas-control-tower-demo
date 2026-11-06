@@ -19,10 +19,11 @@ from .maintenance import maintenance_state, with_maintenance
 from .readiness import demo_clock_age, initialization_status
 from .reanchor import reanchor_demo
 from .search import find_similar, run_search, search_status
-from .schemas import EventInput, ExceptionActionInput, RecommendationDecisionInput, SampleEventInput, TelemetryReadingInput
+from .schemas import DocumentIdInput, EventInput, ExceptionActionInput, RecommendationDecisionInput, SampleEventInput, TelemetryReadingInput, ValidationSampleInput, ValidationStageInput
 from .security import guard_write_request
 from .services import entity_overview, kpi_snapshot, portfolio_overview
 from .telemetry import add_reading, telemetry_view
+from .validation import insert_invalid_sample, insert_valid_probe, remove_invalid, repair_invalid, transition_stage, validation_state
 
 UI_PATH = Path(__file__).parent / "static" / "index.html"
 
@@ -151,6 +152,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def get_timeline(request: Request, profile: str | None = None):
         return {"events": await timeline(await view_ready(request), profile_from_query(profile))}
 
+    @app.get("/api/validation")
+    async def get_validation(request: Request):
+        return await validation_state(await view_ready(request))
+
     @app.get("/api/exceptions/{exception_id}/similar")
     async def similar_cases(request: Request, exception_id: str, limit: int = 3):
         if not 1 <= limit <= 10:
@@ -174,6 +179,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def post_sample_event(request: Request, body: SampleEventInput, profile: str | None = None):
         selected = profile_from_query(profile)
         return await trigger_sample(await write_ready(request, selected), selected, body.sample_id)
+
+    @app.post("/api/validation/stage")
+    async def post_validation_stage(request: Request, body: ValidationStageInput, profile: str | None = None):
+        db = await write_ready(request, profile_from_query(profile))
+        return await with_maintenance(db, "validation", lambda: transition_stage(db, body.stage))
+
+    @app.post("/api/validation/invalid")
+    async def post_invalid_sample(request: Request, body: ValidationSampleInput, profile: str | None = None):
+        selected = profile_from_query(profile)
+        db = await write_ready(request, selected)
+        return await with_maintenance(db, "validation", lambda: insert_invalid_sample(db, selected, body.sample_id))
+
+    @app.post("/api/validation/valid")
+    async def post_valid_probe(request: Request, profile: str | None = None):
+        selected = profile_from_query(profile)
+        db = await write_ready(request, selected)
+        return await with_maintenance(db, "validation", lambda: insert_valid_probe(db, selected))
+
+    @app.post("/api/validation/repair")
+    async def post_repair_invalid(request: Request, body: DocumentIdInput, profile: str | None = None):
+        db = await write_ready(request, profile_from_query(profile))
+        return await with_maintenance(db, "validation", lambda: repair_invalid(db, body.id))
+
+    @app.post("/api/validation/remove")
+    async def post_remove_invalid(request: Request, body: DocumentIdInput, profile: str | None = None):
+        db = await write_ready(request, profile_from_query(profile))
+        return await with_maintenance(db, "validation", lambda: remove_invalid(db, body.id))
 
     @app.post("/api/telemetry/reading")
     async def post_telemetry_reading(request: Request, body: TelemetryReadingInput, profile: str | None = None):
