@@ -6,7 +6,7 @@ from app.main import create_app
 
 def client():
     settings = Settings(mongodb_uri=None, db_name="atlas_control_tower_demo")
-    return TestClient(create_app(settings))
+    return TestClient(create_app(settings), base_url="http://localhost:8000")
 
 
 def test_health_and_profile_discovery_do_not_need_a_database():
