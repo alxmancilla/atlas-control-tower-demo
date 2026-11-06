@@ -12,6 +12,10 @@ def client():
 def test_health_and_profile_discovery_do_not_need_a_database():
     with client() as test_client:
         assert test_client.get("/health").json() == {"status": "ok", "implementation": "python-fastapi"}
+        dashboard = test_client.get("/")
+        assert dashboard.status_code == 200
+        assert dashboard.headers["content-type"].startswith("text/html")
+        assert "Atlas Control Tower" in dashboard.text
         profiles = test_client.get("/api/profiles").json()
         assert profiles["defaultProfile"] == "retail"
         assert [profile["id"] for profile in profiles["profiles"]] == ["retail", "healthcare", "manufacturing"]

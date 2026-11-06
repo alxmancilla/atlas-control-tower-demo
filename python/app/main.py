@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from .config import Settings
 from .db import connection_status, get_db, mongo_lifespan
@@ -19,6 +20,8 @@ from .schemas import EventInput, ExceptionActionInput, RecommendationDecisionInp
 from .security import guard_write_request
 from .services import entity_overview, kpi_snapshot, portfolio_overview
 from .telemetry import add_reading, telemetry_view
+
+UI_PATH = Path(__file__).parent / "static" / "index.html"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -55,6 +58,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     async def health():
         return {"status": "ok", "implementation": "python-fastapi"}
+
+    @app.get("/", include_in_schema=False)
+    async def dashboard():
+        return FileResponse(UI_PATH, media_type="text/html", headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
     @app.get("/api/status")
     async def status(request: Request):
