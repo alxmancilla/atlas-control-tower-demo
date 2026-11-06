@@ -92,6 +92,32 @@ export function kpiPipeline(profile) {
                   },
                 },
               ],
+              actions: [
+                { $match: { trackedEntityId: profile.entity.trackedEntityId } },
+                {
+                  $group: {
+                    _id: null,
+                    recommended: { $sum: { $size: { $ifNull: ['$recommendedActions', []] } } },
+                    decisionArrays: { $push: { $objectToArray: { $ifNull: ['$actionDecisions', {}] } } },
+                  },
+                },
+                {
+                  $project: {
+                    recommended: 1,
+                    decisions: {
+                      $reduce: { input: '$decisionArrays', initialValue: [], in: { $concatArrays: ['$$value', '$$this'] } },
+                    },
+                  },
+                },
+                {
+                  $project: {
+                    recommended: 1,
+                    decided: { $size: '$decisions' },
+                    accepted: { $size: { $filter: { input: '$decisions', cond: { $eq: ['$$this.v.decision', 'accepted'] } } } },
+                    declined: { $size: { $filter: { input: '$decisions', cond: { $eq: ['$$this.v.decision', 'declined'] } } } },
+                  },
+                },
+              ],
             },
           },
         ],
@@ -118,6 +144,7 @@ export function kpiPipeline(profile) {
         t: { $ifNull: [{ $first: { $first: '$ev.totals' } }, { events: 0, late: 0, outOfOrder: 0, duplicates: 0 }] },
         cur: { $ifNull: [{ $first: { $first: '$ex.current' } }, { open: 0, slaBreached: 0, oldestOpenAt: null }] },
         res: { $ifNull: [{ $first: { $first: '$ex.resolved' } }, { n: 0, avgMs: null, withinSla: 0 }] },
+        act: { $ifNull: [{ $first: { $first: '$ex.actions' } }, { recommended: 0, decided: 0, accepted: 0, declined: 0 }] },
       },
     },
     {
@@ -167,6 +194,14 @@ export function kpiPipeline(profile) {
           lineCount: { $ifNull: ['$businessImpact.lineCount', 0] },
           unitsShort: { $ifNull: ['$businessImpact.unitsShort', 0] },
           unit: '$businessImpact.unit',
+        },
+        actionAdoption: {
+          recommended: '$act.recommended',
+          decided: '$act.decided',
+          accepted: '$act.accepted',
+          declined: '$act.declined',
+          decisionRatePct: rate('$act.decided', '$act.recommended'),
+          acceptanceRatePct: rate('$act.accepted', '$act.decided'),
         },
         computedAt: '$$NOW',
       },

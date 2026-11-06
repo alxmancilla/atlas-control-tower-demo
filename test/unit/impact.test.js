@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { assessImpact, assessLoadImpact, impactSummary } from '../../src/domain/impact.js';
+import { recommendActions } from '../../src/domain/recommendations.js';
 import { kpiPipeline } from '../../src/services/kpis.js';
 import { prioritizeException } from '../../src/domain/rules.js';
 import { buildEvent, buildHistoryException, fillTemplates } from '../../src/domain/documents.js';
@@ -45,6 +46,21 @@ test('a multi-stop load is assessed per stop and takes the worst stop level', ()
   const delivered = assessLoadImpact({ assessment: plan({ actualTime: at(-0.1) }), lines, positions, now, cfg });
   assert.equal(delivered.level, 'none');
   assert.equal(assessLoadImpact({ assessment: plan({ projectedTime: at(2) }), lines: [], positions, now, cfg }).lineCount, 0);
+});
+
+test('only projected shortfalls receive explainable, per-stop expedite recommendations', () => {
+  const impact = {
+    computedAt: now,
+    lines: [
+      { stop: 1, level: 'watch', shortfallHours: 0, runOutAt: at(3), destination: { name: 'Store A' } },
+      { stop: 3, level: 'critical', shortfallHours: 1.2, unitsShort: 24, unit: 'cases', runOutAt: at(1), orderRef: 'PO-3', itemRef: 'SKU-1', destination: { id: 'S3', name: 'Store C' } },
+    ],
+  };
+  const [action] = recommendActions(impact);
+  assert.deepEqual([action.actionId, action.type, action.level], ['stop_3', 'expedite_delivery', 'critical']);
+  assert.match(action.rationale, /24 cases for 1\.2 h/);
+  assert.match(action.expectedOutcome, /87 min/);
+  assert.deepEqual(action.target, { orderRef: 'PO-3', stop: 3, destination: { id: 'S3', name: 'Store C' }, itemRef: 'SKU-1' });
 });
 
 test('KPI pipeline is scoped to the profile and materializes one snapshot per profile with $merge', () => {

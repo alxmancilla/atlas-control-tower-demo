@@ -7,7 +7,7 @@ import { resetDemo, setupDemo, isInitialized } from '../../src/services/setup.js
 import { withMaintenance, maintenanceState } from '../../src/services/maintenance.js';
 import { handleApi, statusFor } from '../../src/api.js';
 import { triggerSample, ingestEvent } from '../../src/services/events.js';
-import { applyExceptionAction, exceptionQueue, AUDIT_MAX } from '../../src/services/exceptions.js';
+import { applyExceptionAction, decideRecommendedAction, exceptionQueue, AUDIT_MAX } from '../../src/services/exceptions.js';
 import { entityOverview } from '../../src/services/overview.js';
 import { telemetryView } from '../../src/services/telemetry.js';
 import { insertInvalidSample, repairInvalid, removeInvalid, transitionStage, findInvalidEvents } from '../../src/services/validation.js';
@@ -78,6 +78,24 @@ test('late out-of-order event is labeled and does not move the milestone timelin
   assert.equal(afterOv.assessment.currentStatus.milestoneId, before.assessment.currentStatus.milestoneId);
   const departed = afterOv.assessment.milestones.find((m) => m.id === 'departed');
   assert.equal(departed.reports, 2);
+});
+
+test('recommended actions record an auditable operator decision exactly once', { skip }, async () => {
+  const exc = await db.collection(COLL.exceptions).findOne({ trackedEntityId: profile.entity.trackedEntityId, category: 'delivery_delay' });
+  assert.ok(exc.recommendedActions?.length, JSON.stringify(exc));
+  const action = exc.recommendedActions[0];
+  await assert.rejects(
+    decideRecommendedAction(db, exc.exceptionId, { actionId: action.actionId, decision: 'declined', operator: 'tester' }),
+    /requires a reason/
+  );
+  const updated = await decideRecommendedAction(db, exc.exceptionId, { actionId: action.actionId, decision: 'accepted', operator: 'tester', note: 'Expedite request sent' });
+  assert.equal(updated.actionDecisions[action.actionId].decision, 'accepted');
+  assert.equal(updated.actionDecisions[action.actionId].by, 'tester');
+  assert.match(updated.audit.at(-1).action, /recommendation_accepted/);
+  await assert.rejects(
+    decideRecommendedAction(db, exc.exceptionId, { actionId: action.actionId, decision: 'accepted', operator: 'tester' }),
+    /already been decided/
+  );
 });
 
 test('exception workflow: acknowledge, assign, resolve with audit trail', { skip }, async () => {
@@ -300,6 +318,8 @@ test('KPI snapshot is materialized with $merge and served from kpi_snapshots unt
   assert.ok(fresh.eventQuality.events > 0 && fresh.milestoneAdherence.completed > 0, JSON.stringify(fresh));
   assert.ok(fresh.exceptions.resolvedCount >= profile.history.length, 'resolved history feeds MTTR');
   assert.ok(fresh.sourceReliability.some((s) => s.source === 'carrier'));
+  assert.ok(fresh.actionAdoption.recommended > 0);
+  assert.ok(fresh.actionAdoption.accepted > 0);
   assert.equal(await db.collection(COLL.kpis).countDocuments({ _id: 'retail' }), 1);
   const cached = await kpiSnapshot(db, profile);
   assert.equal(cached.cached, true);

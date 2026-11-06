@@ -41,6 +41,20 @@ async function exceptionAction(act) {
   }
 }
 
+async function recommendationDecision(actionId, decision) {
+  const operator = $('excOperator').value.trim();
+  if (operator) localStorage.operator = operator;
+  try {
+    await api(`/api/exceptions/${encodeURIComponent(state.selectedId)}/recommendation`, {
+      method: 'POST',
+      body: { actionId, decision, operator, note: $('excNote').value },
+    });
+    await refreshExceptions();
+  } catch (err) {
+    $('excActionResult').textContent = err.message;
+  }
+}
+
 export function bindActions() {
   $('profileSelect').addEventListener('change', (e) => selectProfile(e.target.value));
 
@@ -80,6 +94,7 @@ export function bindActions() {
   });
   $('exceptionDetail').addEventListener('click', (e) => {
     if (e.target.dataset.act) return guard(e.target, () => exceptionAction(e.target.dataset.act));
+    if (e.target.dataset.recommendation) return guard(e.target, () => recommendationDecision(e.target.dataset.recommendation, e.target.dataset.decision));
     const idx = e.target.dataset.useResolution;
     if (idx !== undefined) {
       const note = state.similar[state.selectedId]?.results?.[Number(idx)]?.resolution?.note;

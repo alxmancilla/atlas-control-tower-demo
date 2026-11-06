@@ -100,6 +100,18 @@ export function renderDetail(e, profile) {
   if (!e) return el.classList.add('hidden');
   el.classList.remove('hidden');
   const can = (a) => ({ acknowledge: ['open'], assign: ['open', 'acknowledged'], resolve: ['open', 'acknowledged'], note: ['open', 'acknowledged', 'resolved'] })[a].includes(e.status);
+  const recommendations = (e.recommendedActions ?? [])
+    .map((action) => {
+      const decision = e.actionDecisions?.[action.actionId];
+      const decisionText = decision
+        ? `<div class="small">${badge(decision.decision, decision.decision === 'accepted' ? 'green' : 'amber')} ${esc(decision.by)} · ${fmtTime(decision.at)}${decision.note ? `: ${esc(decision.note)}` : ''}</div>`
+        : e.status === 'resolved'
+          ? '<div class="small muted">No decision recorded before resolution.</div>'
+          : `<div class="row"><button data-recommendation="${esc(action.actionId)}" data-decision="accepted">Accept action</button><button class="secondary" data-recommendation="${esc(action.actionId)}" data-decision="declined">Decline</button></div>`;
+      return `<article class="similar"><h4>${badge(action.level, IMPACT_TONE[action.level])} ${esc(action.title)}</h4>
+        <p class="small">${esc(action.rationale)}</p><p class="small"><b>Decision due:</b> ${fmtTime(action.decisionDueAt)} · ${esc(action.expectedOutcome)}</p>${decisionText}</article>`;
+    })
+    .join('');
   el.innerHTML = `<h3>${esc(e.exceptionId)}: ${esc(e.summary)}</h3>
     <div class="small">Triggered by ${esc(e.triggeringEvent.source)} event ${esc(e.triggeringEvent.sourceEventId)} at ${fmtTime(e.triggeringEvent.eventTime)} ·
       SLA due ${fmtTime(e.slaDueAt)} · ${e.relatedEventIds.length} related event(s)</div>
@@ -116,6 +128,7 @@ export function renderDetail(e, profile) {
       <button data-act="resolve" ${can('resolve') ? '' : 'disabled'}>Resolve</button>
     </div>
     <div id="excActionResult" class="small"></div>
+    ${recommendations ? `<section class="recommendations"><h3>Recommended actions</h3><p class="small muted">Explainable recommendations; accepting one records an operator decision, not an automatic change.</p>${recommendations}</section>` : ''}
     <div id="similarCases" class="similar"></div>
     <ul class="audit">${[...e.audit].reverse().map((a) => `<li>${fmtTime(a.at)} <b>${esc(a.action)}</b> by ${esc(a.by)}${a.owner ? ` → ${esc(a.owner)}` : ''}${a.note ? `: ${esc(a.note)}` : ''}</li>`).join('')}</ul>`;
 }

@@ -127,6 +127,7 @@ export function renderKpis(k) {
   const q = k.eventQuality;
   const e = k.exceptions;
   const inv = k.inventoryAtRisk;
+  const act = k.actionAdoption ?? { recommended: 0, decided: 0, accepted: 0, declined: 0, decisionRatePct: null, acceptanceRatePct: null };
   $('kpiMeta').textContent = `materialized with $merge into kpi_snapshots · computed ${fmtTime(k.computedAt)}`;
   $('kpis').innerHTML = [
     kpi('Milestone adherence', pct(m.onTimePct), `${m.onTime} of ${m.completed} completed milestones on time`),
@@ -135,6 +136,7 @@ export function renderKpis(k) {
     kpi('Mean time to resolve', e.mttrHours != null ? `${e.mttrHours} h` : '—', `${e.resolvedCount} resolved · ${pct(e.resolvedWithinSlaPct)} within SLA`),
     kpi('Late event rate', pct(q.lateRatePct), `${q.events} stored events · ${q.invalidRecords} fail schema`),
     kpi('Duplicate feed rate', pct(q.duplicateRatePct), `out-of-order ${pct(q.outOfOrderRatePct)}`),
+    kpi('Action adoption', pct(act.acceptanceRatePct), `${act.accepted} accepted · ${act.declined} declined · ${act.decided} of ${act.recommended} decided`),
   ].join('');
   $('sourceReliability').innerHTML = k.sourceReliability.length
     ? `<h3>Source reliability</h3><table><tr><th>Source</th><th>Events</th><th>Late</th><th>Out of order</th><th>Duplicates</th><th>Reliable</th></tr>${k.sourceReliability

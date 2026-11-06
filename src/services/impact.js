@@ -1,5 +1,6 @@
 import { COLL } from '../db.js';
 import { assessLoadImpact, impactSummary } from '../domain/impact.js';
+import { recommendActions } from '../domain/recommendations.js';
 import { entityOverview } from './overview.js';
 
 // Recomputed results older than this are refreshed when the overview is read.
@@ -33,10 +34,14 @@ export async function recomputeImpact(db, profile, now = new Date()) {
     cfg: profile.impact,
   });
   const id = profile.entity.trackedEntityId;
+  const recommendedActions = recommendActions(impact);
   await db.collection(COLL.entities).updateOne({ trackedEntityId: id }, { $set: { businessImpact: impact } });
   await db
     .collection(COLL.exceptions)
-    .updateMany({ trackedEntityId: id, status: { $ne: 'resolved' } }, { $set: { businessImpact: impactSummary(impact) } });
+    .updateMany(
+      { trackedEntityId: id, status: { $ne: 'resolved' } },
+      { $set: { businessImpact: impactSummary(impact), recommendedActions } }
+    );
   return impact;
 }
 

@@ -4,7 +4,7 @@ import { BadRequestError, StatusError } from './errors.js';
 import { withMaintenance, maintenanceState } from './services/maintenance.js';
 import { invalidDocumentsFilter } from './domain/schema.js';
 import { triggerSample, timeline, reliabilitySummary, validProbeEvent } from './services/events.js';
-import { applyExceptionAction, exceptionQueue, exceptionSummary } from './services/exceptions.js';
+import { applyExceptionAction, decideRecommendedAction, exceptionQueue, exceptionSummary } from './services/exceptions.js';
 import { entityOverview } from './services/overview.js';
 import { telemetryView, addReading } from './services/telemetry.js';
 import { createSearchIndexes, findSimilar, runSearch, searchStatus, SearchUnavailableError, SEARCH_INDEXES } from './services/search.js';
@@ -55,6 +55,7 @@ export const routes = {
 
   'GET /api/exceptions': async ({ db, profile }) => ({ queue: await exceptionQueue(db, profile), rules: profile.priority }),
   'POST /api/exceptions/:id/action': async ({ db, params, body }) => applyExceptionAction(db, params.id, body),
+  'POST /api/exceptions/:id/recommendation': async ({ db, params, body }) => decideRecommendedAction(db, params.id, body),
   'GET /api/exceptions/:id/similar': async ({ db, params }) => findSimilar(db, params.id),
 
   'GET /api/telemetry': async ({ db, profile, query }) =>

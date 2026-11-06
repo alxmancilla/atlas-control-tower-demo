@@ -98,6 +98,31 @@ export async function applyExceptionAction(db, exceptionId, { action, owner, not
   return updated;
 }
 
+// The decision is separate from the recommendation. Recomputing impact can refresh the latter
+// without overwriting a human's accepted/declined decision or its audit evidence.
+export async function decideRecommendedAction(db, exceptionId, { actionId, decision, note, operator } = {}) {
+  const coll = db.collection(COLL.exceptions);
+  const exc = await coll.findOne({ exceptionId });
+  if (!exc) throw new NotFoundError(`Exception ${exceptionId} not found`);
+  if (exc.status === 'resolved') throw new WorkflowError('Cannot decide an action for a resolved exception');
+  if (!['accepted', 'declined'].includes(decision)) throw new WorkflowError('Decision must be "accepted" or "declined"');
+  const action = exc.recommendedActions?.find((candidate) => candidate.actionId === actionId);
+  if (!action) throw new WorkflowError('This recommended action is no longer available. Refresh and retry.');
+  if (exc.actionDecisions?.[actionId]) throw new WorkflowError('This recommended action has already been decided');
+  const cleanNote = clean(note);
+  if (decision === 'declined' && !cleanNote) throw new WorkflowError('Declining a recommendation requires a reason');
+  const now = new Date();
+  const by = clean(operator) || 'demo.operator';
+  const record = { decision, by, at: now, ...(cleanNote ? { note: cleanNote } : {}) };
+  const updated = await coll.findOneAndUpdate(
+    { exceptionId, status: { $ne: 'resolved' }, 'recommendedActions.actionId': actionId, [`actionDecisions.${actionId}`]: { $exists: false } },
+    { $set: { [`actionDecisions.${actionId}`]: record, updatedAt: now }, $push: pushAudit({ at: now, action: `recommendation_${decision}`, by, note: `${action.title}${cleanNote ? ` — ${cleanNote}` : ''}` }) },
+    { returnDocument: 'after' }
+  );
+  if (!updated) throw new WorkflowError('The recommendation changed while you were working on it. Refresh and retry.');
+  return updated;
+}
+
 // The queue and its counts cover the current tracked entity; resolved history from earlier
 // shipments stays in the collection as the corpus for similar-case lookup.
 const currentScope = (profile) => ({ profile: profile.id, trackedEntityId: profile.entity.trackedEntityId });
