@@ -92,5 +92,7 @@ def test_write_guard_requires_json_local_host_and_configured_database():
     with TestClient(app, base_url="http://localhost:8000") as client:
         assert client.post("/api/events", data="not-json").status_code == 415
         assert client.post("/api/events", json=payload()).status_code == 503
+        assert client.post("/api/reanchor", data="not-json").status_code == 415
+        assert client.post("/api/reanchor", json={}).status_code == 503
     with TestClient(app, base_url="http://example.test") as client:
         assert client.get("/health").status_code == 421

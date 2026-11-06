@@ -15,6 +15,7 @@ COLLECTIONS = {
     "events": "operational_events",
     "exceptions": "exceptions",
     "telemetry": "telemetry_readings",
+    "positions": "inventory_positions",
     "kpis": "kpi_snapshots",
     "state": "demo_state",
 }

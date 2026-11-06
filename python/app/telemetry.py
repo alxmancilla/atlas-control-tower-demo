@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 from datetime import datetime, timedelta, timezone
 
@@ -21,6 +22,16 @@ def reading(profile: Profile, timestamp: datetime, value: float) -> dict:
         "value": round(value, 1),
         "unit": telemetry.unit,
     }
+
+
+def synthetic_series(profile: Profile, now: datetime | None = None, *, points: int = 36, step_min: int = 10) -> list[dict]:
+    telemetry = _configured(profile)
+    now = now or datetime.now(timezone.utc)
+    span = (telemetry.maximum - telemetry.minimum) / 6
+    return [
+        reading(profile, now - timedelta(minutes=(points - index) * step_min), telemetry.excursion_value if index in {20, 21} else telemetry.baseline + math.sin(index / 3) * span)
+        for index in range(points)
+    ]
 
 
 def telemetry_pipeline(profile: Profile, *, since: datetime, minimum: float, maximum: float) -> list[dict]:

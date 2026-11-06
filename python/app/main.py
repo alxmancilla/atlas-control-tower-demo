@@ -9,12 +9,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from .config import Settings
+from .config import Settings, redact
 from .db import connection_status, get_db, mongo_lifespan
-from .errors import AppError, Conflict
+from .errors import AppError, Conflict, ServiceUnavailable
 from .events import ingest_event
 from .exceptions import apply_exception_action, decide_recommended_action, exception_queue
 from .profiles import PROFILES, get_profile
+from .maintenance import maintenance_state, with_maintenance
+from .readiness import demo_clock_age, initialization_status
+from .reanchor import reanchor_demo
 from .search import find_similar, run_search, search_status
 from .schemas import EventInput, ExceptionActionInput, RecommendationDecisionInput, TelemetryReadingInput
 from .security import guard_write_request
@@ -65,7 +68,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/status")
     async def status(request: Request):
-        return await connection_status(request.app)
+        base = await connection_status(request.app)
+        if not base["connected"]:
+            return base
+        try:
+            db = get_db(request.app)
+            maintenance = await maintenance_state(db)
+            if maintenance["active"]:
+                return {**base, "maintenance": maintenance}
+            readiness, clock_age_min = await initialization_status(db), await demo_clock_age(db)
+            return {**base, "maintenance": maintenance, "init": readiness, "clockAgeMin": clock_age_min}
+        except Exception as error:
+            return {**base, "error": f"Status check failed: {redact(error)}"}
 
     @app.get("/api/stream")
     async def stream(request: Request):
@@ -75,18 +89,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def profiles():
         return {"defaultProfile": settings.default_profile, "profiles": [profile.public() for profile in PROFILES.values()]}
 
+    @app.get("/api/readiness")
+    async def readiness(request: Request):
+        db = get_db(request.app)
+        return {"init": await initialization_status(db), "maintenance": await maintenance_state(db), "clockAgeMin": await demo_clock_age(db)}
+
     def profile_from_query(profile: str | None) -> object:
         try:
             return get_profile(profile or settings.default_profile)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-    async def write_ready(request: Request, profile) -> object:
+    async def view_ready(request: Request) -> object:
         db = get_db(request.app)
-        now = datetime.now(timezone.utc)
-        active = await db["demo_state"].find_one({"_id": "maintenance", "active": True, "until": {"$gt": now}}, {"op": 1})
-        if active:
-            raise HTTPException(status_code=503, detail=f"Maintenance in progress ({active.get('op', 'unknown')}). Views resume automatically when it finishes.")
+        active = await maintenance_state(db)
+        if active["active"]:
+            raise ServiceUnavailable(f"Maintenance in progress ({active.get('op', 'unknown')}). Views resume automatically when it finishes.")
+        return db
+
+    async def write_ready(request: Request, profile) -> object:
+        db = await view_ready(request)
         entity = await db["tracked_entities"].find_one({"profile": profile.id, "trackedEntityId": profile.entity_id}, {"_id": 1})
         if not entity:
             raise Conflict("The demo database is not initialized. Initialize the Node reference demo before submitting events.")
@@ -94,15 +116,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/overview")
     async def overview(request: Request, profile: str | None = None):
-        return await entity_overview(get_db(request.app), profile_from_query(profile))
+        return await entity_overview(await view_ready(request), profile_from_query(profile))
 
     @app.get("/api/portfolio")
     async def portfolio(request: Request, profile: str | None = None):
-        return await portfolio_overview(get_db(request.app), profile_from_query(profile))
+        return await portfolio_overview(await view_ready(request), profile_from_query(profile))
 
     @app.get("/api/kpis")
     async def kpis(request: Request, profile: str | None = None, fresh: bool = False):
-        return await kpi_snapshot(get_db(request.app), profile_from_query(profile), max_age_seconds=0 if fresh else 15)
+        return await kpi_snapshot(await view_ready(request), profile_from_query(profile), max_age_seconds=0 if fresh else 15)
 
     @app.get("/api/search/status")
     async def get_search_status(request: Request):
@@ -110,24 +132,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/telemetry")
     async def telemetry(request: Request, profile: str | None = None, hours: float = 8, min: float | None = None, max: float | None = None):
-        return await telemetry_view(get_db(request.app), profile_from_query(profile), hours=hours, minimum=min, maximum=max)
+        return await telemetry_view(await view_ready(request), profile_from_query(profile), hours=hours, minimum=min, maximum=max)
 
     @app.get("/api/search")
     async def search(request: Request, q: str | None = None, profile: str | None = None, kind: str = "all", source: str | None = None, event_type: str | None = None, status: str | None = None, limit: int = 10):
         if not 1 <= limit <= 25:
             raise HTTPException(status_code=400, detail="limit must be between 1 and 25")
-        return await run_search(get_db(request.app), profile_from_query(profile), q=q, kind=kind, source=source, event_type=event_type, status=status, limit=limit)
+        return await run_search(await view_ready(request), profile_from_query(profile), q=q, kind=kind, source=source, event_type=event_type, status=status, limit=limit)
 
     @app.get("/api/exceptions")
     async def exceptions(request: Request, profile: str | None = None):
         selected = profile_from_query(profile)
-        return {"queue": await exception_queue(get_db(request.app), selected)}
+        return {"queue": await exception_queue(await view_ready(request), selected)}
 
     @app.get("/api/exceptions/{exception_id}/similar")
     async def similar_cases(request: Request, exception_id: str, limit: int = 3):
         if not 1 <= limit <= 10:
             raise HTTPException(status_code=400, detail="limit must be between 1 and 10")
-        return await find_similar(get_db(request.app), exception_id, limit=limit)
+        return await find_similar(await view_ready(request), exception_id, limit=limit)
+
+    @app.post("/api/reanchor")
+    async def post_reanchor(request: Request):
+        db = get_db(request.app)
+        readiness = await initialization_status(db)
+        if not readiness["initialized"]:
+            raise Conflict("The demo database is not initialized. Initialize the Node reference demo before reanchoring.")
+        return {"profiles": await with_maintenance(db, "reanchor", lambda: reanchor_demo(db))}
 
     @app.post("/api/events")
     async def post_event(request: Request, body: EventInput, profile: str | None = None):
