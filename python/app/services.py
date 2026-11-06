@@ -8,6 +8,8 @@ from .db import COLLECTIONS
 from .profiles import Profile
 from .risk import assess_milestones
 
+KPI_MAX_AGE_SECONDS = 15
+
 
 async def portfolio_overview(db, profile: Profile) -> dict[str, object]:
     impact_rank = {"$switch": {"branches": [
@@ -59,11 +61,108 @@ async def entity_overview(db, profile: Profile) -> dict[str, object]:
     return {"entity": {key: doc.get(key) for key in ("trackedEntityId", "entityKind", "product", "origin", "destination", "metadata", "orderLines", "anchorAt")}, "latestReliableMilestone": latest, "openExceptionCount": sum(item["n"] for item in doc["openExceptions"]), "openExceptionsBySeverity": {item["_id"]: item["n"] for item in doc["openExceptions"]}, "businessImpact": doc.get("businessImpact"), "assessment": assess_milestones(milestones, datetime.now(timezone.utc), profile.risk), "evaluatedAt": datetime.now(timezone.utc)}
 
 
-async def kpi_snapshot(db, profile: Profile) -> dict[str, object]:
-    snapshot = await db[COLLECTIONS["kpis"]].find_one({"_id": profile.id}, {"_id": 0})
-    if snapshot:
+def _rate_expr(part, whole) -> dict:
+    return {"$cond": [{"$gt": [whole, 0]}, {"$round": [{"$multiply": [{"$divide": [part, whole]}, 100]}, 1]}, None]}
+
+
+def _count_if(condition) -> dict:
+    return {"$sum": {"$cond": [condition, 1, 0]}}
+
+
+def kpi_pipeline(profile: Profile) -> list[dict]:
+    """Materialize one profile's control-tower KPIs, replacing its prior snapshot by `_id`."""
+    late = {"$in": ["late", {"$ifNull": ["$reliability.flags", []]}]}
+    out_of_order = {"$eq": ["$reliability.status", "out_of_order"]}
+    open_item = {"$ne": ["$status", "resolved"]}
+    duplicates = {"$sum": {"$ifNull": ["$reliability.duplicateCount", 0]}}
+    tolerance_ms = profile.risk["onTimeToleranceMin"] * 60_000
+    return [
+        {"$match": {"trackedEntityId": profile.entity_id, "profile": profile.id}},
+        {"$lookup": {"from": COLLECTIONS["events"], "localField": "trackedEntityId", "foreignField": "trackedEntityId", "pipeline": [{"$match": {"milestoneId": {"$type": "string"}, "eventTime": {"$type": "date"}}}, {"$group": {"_id": "$milestoneId", "actualTime": {"$min": "$eventTime"}}}], "as": "actuals"}},
+        {"$lookup": {"from": COLLECTIONS["events"], "localField": "profile", "foreignField": "profile", "pipeline": [{"$facet": {
+            "totals": [{"$group": {"_id": None, "events": {"$sum": 1}, "late": _count_if(late), "outOfOrder": _count_if(out_of_order), "duplicates": duplicates}}],
+            "bySource": [{"$group": {"_id": "$source", "events": {"$sum": 1}, "late": _count_if(late), "outOfOrder": _count_if(out_of_order), "clean": _count_if({"$not": [{"$or": [late, out_of_order]}]}), "duplicates": duplicates}}, {"$sort": {"_id": 1}}],
+        }}], "as": "ev"}},
+        {"$lookup": {"from": COLLECTIONS["exceptions"], "localField": "profile", "foreignField": "profile", "pipeline": [{"$facet": {
+            "current": [{"$match": {"trackedEntityId": profile.entity_id}}, {"$group": {"_id": None, "open": _count_if(open_item), "slaBreached": _count_if({"$and": [open_item, {"$lt": ["$slaDueAt", "$$NOW"]}]}), "oldestOpenAt": {"$min": {"$cond": [open_item, "$createdAt", None]}}}}],
+            "resolved": [{"$match": {"status": "resolved", "resolution.at": {"$type": "date"}}}, {"$group": {"_id": None, "n": {"$sum": 1}, "avgMs": {"$avg": {"$subtract": ["$resolution.at", "$createdAt"]}}, "withinSla": _count_if({"$lte": ["$resolution.at", "$slaDueAt"]})}}],
+            "actions": [
+                {"$match": {"trackedEntityId": profile.entity_id}},
+                {"$group": {
+                    "_id": None,
+                    "recommended": {"$sum": {"$size": {"$ifNull": ["$recommendedActions", []]}}},
+                    "decisionArrays": {"$push": {"$objectToArray": {"$ifNull": ["$actionDecisions", {}]}}},
+                }},
+                {"$project": {"recommended": 1, "decisions": {"$reduce": {"input": "$decisionArrays", "initialValue": [], "in": {"$concatArrays": ["$$value", "$$this"]}}}}},
+                {"$project": {
+                    "recommended": 1,
+                    "decided": {"$size": "$decisions"},
+                    "accepted": {"$size": {"$filter": {"input": "$decisions", "cond": {"$eq": ["$$this.v.decision", "accepted"]}}}},
+                    "declined": {"$size": {"$filter": {"input": "$decisions", "cond": {"$eq": ["$$this.v.decision", "declined"]}}}},
+                }},
+            ],
+        }}], "as": "ex"}},
+        {"$set": {
+            "mm": {
+                "$map": {
+                    "input": "$plannedMilestones",
+                    "as": "planned",
+                    "in": {"$let": {
+                        "vars": {"actual": {"$first": {"$filter": {
+                            "input": "$actuals",
+                            "cond": {"$eq": ["$$this._id", "$$planned.milestoneId"]},
+                        }}}},
+                        "in": {
+                            "done": {"$eq": [{"$type": "$$actual.actualTime"}, "date"]},
+                            "onTime": {"$and": [
+                                {"$eq": [{"$type": "$$actual.actualTime"}, "date"]},
+                                {"$lte": [{"$subtract": ["$$actual.actualTime", "$$planned.plannedTime"]}, tolerance_ms]},
+                            ]},
+                        },
+                    }},
+                },
+            },
+            "totals": {"$ifNull": [{"$first": {"$first": "$ev.totals"}}, {"events": 0, "late": 0, "outOfOrder": 0, "duplicates": 0}]},
+            "current": {"$ifNull": [{"$first": {"$first": "$ex.current"}}, {"open": 0, "slaBreached": 0, "oldestOpenAt": None}]},
+            "resolved": {"$ifNull": [{"$first": {"$first": "$ex.resolved"}}, {"n": 0, "avgMs": None, "withinSla": 0}]},
+            "actions": {"$ifNull": [{"$first": {"$first": "$ex.actions"}}, {"recommended": 0, "decided": 0, "accepted": 0, "declined": 0}]},
+        }},
+        {"$project": {
+            "_id": "$profile", "profile": 1, "trackedEntityId": 1,
+            "milestoneAdherence": {"completed": {"$size": {"$filter": {"input": "$mm", "cond": "$$this.done"}}}, "onTime": {"$size": {"$filter": {"input": "$mm", "cond": "$$this.onTime"}}}, "onTimePct": _rate_expr({"$size": {"$filter": {"input": "$mm", "cond": "$$this.onTime"}}}, {"$size": {"$filter": {"input": "$mm", "cond": "$$this.done"}}})},
+            "eventQuality": {"events": "$totals.events", "lateRatePct": _rate_expr("$totals.late", "$totals.events"), "outOfOrderRatePct": _rate_expr("$totals.outOfOrder", "$totals.events"), "duplicateRatePct": _rate_expr("$totals.duplicates", {"$add": ["$totals.events", "$totals.duplicates"]}), "invalidRecords": {"$literal": 0}},
+            "sourceReliability": {"$map": {"input": {"$ifNull": [{"$first": "$ev.bySource"}, []]}, "as": "source", "in": {"source": "$$source._id", "events": "$$source.events", "late": "$$source.late", "outOfOrder": "$$source.outOfOrder", "duplicates": "$$source.duplicates", "reliablePct": _rate_expr("$$source.clean", {"$add": ["$$source.events", "$$source.duplicates"]})}}},
+            "exceptions": {"open": "$current.open", "slaBreached": "$current.slaBreached", "oldestOpenAgeMin": {"$cond": ["$current.oldestOpenAt", {"$round": [{"$divide": [{"$subtract": ["$$NOW", "$current.oldestOpenAt"]}, 60_000]}, 0]}, None]}, "resolvedCount": "$resolved.n", "mttrHours": {"$cond": ["$resolved.avgMs", {"$round": [{"$divide": ["$resolved.avgMs", 3_600_000]}, 1]}, None]}, "resolvedWithinSlaPct": _rate_expr("$resolved.withinSla", "$resolved.n")},
+            "inventoryAtRisk": {"level": {"$ifNull": ["$businessImpact.level", "none"]}, "linesAtRisk": {"$ifNull": ["$businessImpact.linesAtRisk", 0]}, "lineCount": {"$ifNull": ["$businessImpact.lineCount", 0]}, "unitsShort": {"$ifNull": ["$businessImpact.unitsShort", 0]}, "unit": "$businessImpact.unit"},
+            "actionAdoption": {"recommended": "$actions.recommended", "decided": "$actions.decided", "accepted": "$actions.accepted", "declined": "$actions.declined", "decisionRatePct": _rate_expr("$actions.decided", "$actions.recommended"), "acceptanceRatePct": _rate_expr("$actions.accepted", "$actions.decided")},
+            "computedAt": "$$NOW",
+        }},
+        {"$merge": {"into": COLLECTIONS["kpis"], "on": "_id", "whenMatched": "replace", "whenNotMatched": "insert"}},
+    ]
+
+
+async def refresh_kpis(db, profile: Profile) -> dict[str, object]:
+    cursor = await db[COLLECTIONS["entities"]].aggregate(kpi_pipeline(profile))
+    async for _ in cursor:
+        pass
+    snapshot = await db[COLLECTIONS["kpis"]].find_one({"_id": profile.id})
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Demo data not found for this profile. Initialize the demo database first.")
+    return snapshot
+
+
+async def kpi_snapshot(db, profile: Profile, *, max_age_seconds: float = KPI_MAX_AGE_SECONDS, now: datetime | None = None) -> dict[str, object]:
+    snapshot = await db[COLLECTIONS["kpis"]].find_one({"_id": profile.id})
+    now = now or datetime.now(timezone.utc)
+    computed_at = snapshot.get("computedAt") if snapshot else None
+    if snapshot and isinstance(computed_at, datetime) and (now - _utc(computed_at)).total_seconds() <= max_age_seconds:
         return {**snapshot, "cached": True}
-    return await _live_kpis(db, profile)
+    try:
+        return {**(await refresh_kpis(db, profile)), "cached": False}
+    except HTTPException as error:
+        if error.status_code != 404 or snapshot:
+            raise
+        return await _live_kpis(db, profile)
 
 
 def _utc(value: datetime) -> datetime:

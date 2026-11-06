@@ -17,7 +17,7 @@ The Python service defaults to port `8000`; set `PYTHON_PORT` to override it. It
 - `GET /api/profiles`
 - `GET /api/overview?profile=retail`
 - `GET /api/portfolio?profile=retail`
-- `GET /api/kpis?profile=retail`
+- `GET /api/kpis?profile=retail[&fresh=true]`
 - `GET /api/exceptions?profile=retail`
 - `POST /api/events?profile=retail`
 - `POST /api/exceptions/{exceptionId}/action?profile=retail`
@@ -25,4 +25,4 @@ The Python service defaults to port `8000`; set `PYTHON_PORT` to override it. It
 
 Event submission validates its source, milestone, and category against the selected profile. It stores an event and its exception work item in a multi-document transaction, suppresses duplicate source events using the Node-compatible `idempotencyKey`, and keeps a bounded exception audit trail. Operator actions support acknowledge, assign, note, resolve, and one-time accept/decline decisions for seeded recommendations.
 
-The overview and portfolio routes run their own MongoDB aggregations. The KPI route reads an existing materialized snapshot when present; otherwise it calculates an equivalent read-only response. Writing the `$merge` refresh pipeline, setup/reset, Search, telemetry, change streams, and the UI are later ports.
+The overview and portfolio routes run their own MongoDB aggregations. The KPI route materializes one profile snapshot with `$merge` when it is missing or older than 15 seconds; add `fresh=true` to force immediate refresh. If the database is not initialized, it retains the original read-only live fallback. Setup/reset, Search, telemetry, change streams, and the UI are later ports.

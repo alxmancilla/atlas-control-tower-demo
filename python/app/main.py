@@ -64,8 +64,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await portfolio_overview(get_db(request.app), profile_from_query(profile))
 
     @app.get("/api/kpis")
-    async def kpis(request: Request, profile: str | None = None):
-        return await kpi_snapshot(get_db(request.app), profile_from_query(profile))
+    async def kpis(request: Request, profile: str | None = None, fresh: bool = False):
+        return await kpi_snapshot(get_db(request.app), profile_from_query(profile), max_age_seconds=0 if fresh else 15)
 
     @app.get("/api/exceptions")
     async def exceptions(request: Request, profile: str | None = None):

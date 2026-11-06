@@ -30,7 +30,7 @@ npm start                     # http://localhost:3000
 
 ### Python / FastAPI recreation (in progress)
 
-The tagged Node application remains the complete `0.1` reference. A parallel Python implementation lives in [`python/`](python/); it uses FastAPI and PyMongo Async against the **same non-production Atlas demo database** without changing the existing Node code or UI. It provides safe read APIs for status, profiles, overview, portfolio, KPIs, and the exception queue, plus transactional event ingestion and auditable operator-exception/recommendation decisions. It does not yet implement setup/reset, Search, telemetry, change streams, or serve the browser UI.
+The tagged Node application remains the complete `0.1` reference. A parallel Python implementation lives in [`python/`](python/); it uses FastAPI and PyMongo Async against the **same non-production Atlas demo database** without changing the existing Node code or UI. It provides safe read APIs for status, profiles, overview, portfolio, materialized KPIs (use `fresh=true` to force refresh), and the exception queue, plus transactional event ingestion and auditable operator-exception/recommendation decisions. It does not yet implement setup/reset, Search, telemetry, change streams, or serve the browser UI.
 
 It requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). From the `python/` directory, run `uv run --env-file ../.env python -m app.run`; it listens on `127.0.0.1:8000` by default (override with `PYTHON_PORT`). See [`python/README.md`](python/README.md) for its current endpoint contract and tests.
 
