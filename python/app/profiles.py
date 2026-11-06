@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 
 from .config import PROFILE_IDS
 
@@ -29,6 +29,28 @@ class Telemetry:
 
 
 @dataclass(frozen=True)
+class Sample:
+    """A fixed, synthetic event that may be triggered from the local demo UI."""
+
+    id: str
+    label: str
+    source: str | None = None
+    event_type: str | None = None
+    source_event_id: str | None = None
+    event_time_offset_min: int = 0
+    milestone_id: str | None = None
+    exception_category: str | None = None
+    channel: str | None = None
+    description: str | None = None
+    notes: str | None = None
+    details: dict[str, object] = field(default_factory=dict)
+    duplicate_of: str | None = None
+
+    def public(self) -> dict[str, object]:
+        return {key: value for key, value in {"id": self.id, "label": self.label, "duplicateOf": self.duplicate_of, "eventType": self.event_type}.items() if value is not None}
+
+
+@dataclass(frozen=True)
 class Profile:
     id: str
     label: str
@@ -40,6 +62,7 @@ class Profile:
     milestones: frozenset[str]
     exception_categories: dict[str, ExceptionCategory]
     telemetry: Telemetry | None = None
+    samples: tuple[Sample, ...] = ()
 
     def public(self) -> dict[str, object]:
         return {
@@ -53,6 +76,7 @@ class Profile:
             "milestones": sorted(self.milestones),
             "exceptionCategories": {key: asdict(value) for key, value in self.exception_categories.items()},
             "telemetry": self.telemetry.public() if self.telemetry else {"enabled": False},
+            "samples": [sample.public() for sample in self.samples],
         }
 
 
@@ -68,7 +92,38 @@ _TELEMETRY = {
     "healthcare": Telemetry("temperature", "Cooler box temperature (controlled supplies)", "°C", 2, 8, "LOGGER-CC-41", 5, 9.4),
     "manufacturing": Telemetry("relative_humidity", "Dock staging humidity (moisture-sensitive components)", "%RH", 30, 60, "DOCK-RH-07", 45, 71),
 }
-PROFILES = {profile_id: replace(profile, telemetry=_TELEMETRY[profile_id]) for profile_id, profile in PROFILES.items()}
+
+
+_SAMPLES = {
+    "retail": (
+        Sample("arrived_dc", "Carrier: arrived at cross-dock", "carrier", "milestone", "TMS-ARR-5531", milestone_id="arrived_dc", description="Trailer checked in at cross-dock door 14", notes="Driver reported heavy traffic on I-95", details={"scac": "FRTX", "trailerId": "TRL-8812", "door": "14", "ediStatus": "X3", "raw": "ST*214*0419~B10*TRL8812*RO77821*FRTX~LX*1~AT7*X3*NS***{{date}}*{{time}}*UT~MS1*TRENTON*NJ*US~SE*6*0419~"}),
+        Sample("arrived_dc_resend", "Carrier: resend arrival (duplicate)", duplicate_of="arrived_dc"),
+        Sample("late_departure_scan", "WMS: departure scan uploaded 3h late", "dc_wms", "milestone", "WMS-DEP-9001", -190, "departed", description="Outbound departure scan uploaded after handheld resync", notes="Handheld was offline in the yard", details={"dockDoor": "D7", "handheldId": "HH-22", "palletsScanned": 24, "raw": {"scanner": "HH-22", "action": "SHIP_CONFIRM", "sscc": "(00)106141412345678908", "scannedAt": "{{iso}}", "uploadBatch": "SYNC-0317"}}),
+        Sample("delay_alert", "Carrier: ETA slip alert", "carrier", "exception", "TMS-ALERT-771", exception_category="delivery_delay", channel="api", description="Carrier ETA to store slipped 2 hours; delayed replenishment before promo", notes="Traffic incident on I-95", details={"scac": "FRTX", "etaRevisionMin": 120, "reasonCode": "TRAFFIC", "raw": {"type": "shipment.eta_changed", "shipment": "RO77821", "carrier": "FRTX", "delayMinutes": 120, "reason": "TRAFFIC", "sentAt": "{{iso}}"}}),
+        Sample("delay_store_report", "Store: reports same delay", "store_receiving", "exception", "STR-NOTE-12", exception_category="delivery_delay", description="Store manager flagged delayed replenishment for chilled berries", notes="Promo end cap is empty", details={"storeId": "STORE-1187", "reportedBy": "store.manager", "shelfGapCases": 60}),
+        Sample("out_for_delivery", "Carrier: out for delivery", "carrier", "milestone", "TMS-OFD-5602", milestone_id="out_for_delivery", channel="gps", description="Trailer dispatched from cross-dock to Store #1187 (geofence exit)", details={"scac": "FRTX", "trailerId": "TRL-8812", "stopSeq": 3, "raw": {"device": "TELEMATICS-8812", "fix": "{{iso}}", "lat": 40.2171, "lon": -74.7429, "speedKph": 38, "heading": 212, "geofence": "XDOCK-TRENTON:EXIT"}}),
+        Sample("received", "Store: received", "store_receiving", "milestone", "STR-RCV-3391", milestone_id="received", description="Store received chilled berries; 2 cases short", details={"storeId": "STORE-1187", "casesReceived": 478, "shortCases": 2, "receiver": "dock.associate"}),
+    ),
+    "healthcare": (
+        Sample("handoff", "Courier: handoff completed", "courier", "milestone", "CUR-HND-7790", milestone_id="handoff", description="Cooler box CB-17 handed to last-mile courier", notes="Seal intact, custody signed", details={"courierId": "CUR-9", "vehicle": "BIKE-3", "sealId": "SEAL-5541", "raw": {"event": "custody.transferred", "transferOrder": "TO-55021", "from": "CUR-6", "to": "CUR-9", "seal": "SEAL-5541", "at": "{{iso}}"}}),
+        Sample("handoff_resend", "Courier: resend handoff (duplicate)", duplicate_of="handoff"),
+        Sample("late_dispatch_scan", "Hub: dispatch scan uploaded 2.5h late", "supply_hub", "milestone", "HUB-DSP-2290", -150, "dispatched", description="Loading bay scan synced after network outage", notes="Bay scanner reconnected", details={"bayId": "LB-2", "scannerId": "SC-8", "raw": {"scanner": "SC-8", "action": "LOAD_OUT", "barcode": "CB-17", "bay": "LB-2", "scannedAt": "{{iso}}", "uploadBatch": "RECONNECT-12"}}),
+        Sample("excursion_alert", "Logger: handling excursion alert", "courier", "exception", "CUR-ALERT-355", exception_category="handling_excursion", channel="iot", description="Cooler temperature outside configured 2-8 C range during transit", notes="Box left in direct sun at relay", details={"courierId": "CUR-9", "coolerBoxId": "CB-17", "observedC": 9.4, "raw": {"logger": "LOGGER-CC-41", "ts": "{{iso}}", "tempC": 9.4, "battery": 0.82, "alarm": "HIGH_TEMP", "rangeC": [2, 8]}}),
+        Sample("excursion_lab_report", "Lab: reports same excursion", "receiving_lab", "exception", "LAB-NOTE-51", exception_category="handling_excursion", description="Receiving desk notified of handling excursion before arrival", details={"deskId": "RCV-1"}),
+        Sample("delivered", "Courier: delivered", "courier", "milestone", "CUR-DLV-7811", milestone_id="delivered", description="Delivered to Northside Facility Lab receiving desk", details={"courierId": "CUR-9", "signature": "captured"}),
+        Sample("received", "Lab: received", "receiving_lab", "milestone", "LAB-RCV-60", milestone_id="received", description="Kits checked in and moved to lab cold storage", details={"deskId": "RCV-1", "kitsReceived": 36, "storageUnit": "FRIDGE-4"}),
+    ),
+    "manufacturing": (
+        Sample("quality_hold", "Quality: place lot on hold", "quality_station", "exception", "QS-HOLD-4402", exception_category="quality_hold", description="Quality hold: porosity found on 3 of 20 sampled housings", notes="Awaiting supplier 8D response", details={"inspectionId": "INSP-2207", "defectCode": "POROSITY", "sampleSize": 20, "defects": 3, "raw": {"form": "NCR-INCOMING", "inspector": "qa.tech", "enteredAt": "{{iso}}", "text": "Porosity on bore face, 3/20 samples. Hold lot pending 8D."}}),
+        Sample("quality_hold_resend", "Quality: resend hold (duplicate)", duplicate_of="quality_hold"),
+        Sample("production_risk", "MES: line start at risk", "mes", "exception", "MES-ALERT-901", exception_category="production_risk_delay", description="Line B start at risk: housings not line-side for B-shift", notes="Material shortage in 60 minutes", details={"lineId": "LINE-B", "workOrder": "WO-7781", "stationId": "ST-04", "minutesToShortage": 60, "raw": {"topic": "mes/line-b/material", "severity": "WARN", "part": "HX-220", "station": "ST-04", "minutesToStarve": 60, "ts": "{{iso}}"}}),
+        Sample("late_departure_asn", "Supplier: departure ASN uploaded 6h late", "supplier_portal", "milestone", "SUP-DEP-1199", -365, "inbound_departure", channel="batch_file", description="Supplier re-sent departure update from batch upload", details={"asnId": "ASN-30018", "batchId": "B-77", "raw": "asn_id,event,event_time,pro\nASN-30018,DEPARTED,{{iso}},PRO-77120"}),
+        Sample("quality_release", "Quality: release lot", "quality_station", "milestone", "QS-REL-4410", milestone_id="quality_release", description="Lot released after 100% re-inspection; 3 pieces scrapped", details={"inspectionId": "INSP-2208", "inspector": "qa.tech", "scrapped": 3}),
+        Sample("line_side_delivery", "MES: line-side delivery", "mes", "milestone", "MES-LSD-930", milestone_id="line_side_delivery", description="Housings delivered to Line B supermarket", details={"lineId": "LINE-B", "stationId": "ST-04", "kanbanCards": 6}),
+    ),
+}
+
+PROFILES = {profile_id: replace(profile, telemetry=_TELEMETRY[profile_id], samples=_SAMPLES[profile_id]) for profile_id, profile in PROFILES.items()}
 
 
 def get_profile(profile_id: str) -> Profile:

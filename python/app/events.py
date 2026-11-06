@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from copy import deepcopy
 
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -8,8 +9,26 @@ from pymongo.errors import DuplicateKeyError
 from .db import COLLECTIONS
 from .errors import BadRequest
 from .exceptions import open_or_update_exception
-from .profiles import Profile
+from .profiles import Profile, Sample
 from .schemas import EventInput
+
+EVENT_ENVELOPE_SCHEMA = {
+    "bsonType": "object",
+    "required": ["trackedEntityId", "profile", "eventType", "eventTime", "receivedAt", "source", "sourceEventId", "idempotencyKey"],
+    "properties": {
+        "trackedEntityId": {"bsonType": "string", "minLength": 1},
+        "profile": {"enum": ["retail", "healthcare", "manufacturing"]},
+        "eventType": {"bsonType": "string", "minLength": 1},
+        "eventTime": {"bsonType": "date"},
+        "receivedAt": {"bsonType": "date"},
+        "source": {"bsonType": "string", "minLength": 1},
+        "sourceEventId": {"bsonType": "string", "minLength": 1},
+        "idempotencyKey": {"bsonType": "string", "minLength": 1},
+        "channel": {"enum": ["edi", "api", "wms_scan", "gps", "iot", "manual", "batch_file"]},
+        "milestoneId": {"bsonType": "string"},
+        "details": {"bsonType": "object"},
+    },
+}
 
 
 def _utc(value: datetime) -> datetime:
@@ -37,7 +56,10 @@ def build_event(profile: Profile, payload: EventInput, received_at: datetime) ->
         raise BadRequest(f'Unknown milestone "{payload.milestone_id}" for profile {profile.id}')
     if payload.exception_category and payload.exception_category not in profile.exception_categories:
         raise BadRequest(f'Unknown exception category "{payload.exception_category}" for profile {profile.id}')
-    event = {"trackedEntityId": profile.entity_id, "profile": profile.id, "eventType": payload.event_type, "eventTime": _utc(payload.event_time), "receivedAt": _utc(received_at), "source": payload.source, "channel": profile.sources[payload.source], "sourceEventId": payload.source_event_id, "idempotencyKey": f"{payload.source}:{payload.source_event_id}", "description": payload.description, "details": payload.details, "demo": {"python": True}}
+    channel = payload.channel or profile.sources[payload.source]
+    if channel not in {"edi", "api", "wms_scan", "gps", "iot", "manual", "batch_file"}:
+        raise BadRequest(f'Unknown channel "{channel}"')
+    event = {"trackedEntityId": profile.entity_id, "profile": profile.id, "eventType": payload.event_type, "eventTime": _utc(payload.event_time), "receivedAt": _utc(received_at), "source": payload.source, "channel": channel, "sourceEventId": payload.source_event_id, "idempotencyKey": f"{payload.source}:{payload.source_event_id}", "description": payload.description, "details": payload.details, "demo": {"python": True}}
     if payload.milestone_id:
         event["milestoneId"] = payload.milestone_id
     if payload.exception_category:
@@ -87,3 +109,62 @@ async def _record_duplicate(db, profile: Profile, event: dict, session) -> dict:
         raise BadRequest("Duplicate event could not be located after its idempotency conflict")
     exception = await open_or_update_exception(db, profile, original, session) if original.get("exception") else None
     return {"outcome": "deduplicated", "eventId": str(original["_id"]), "exception": exception, "transactional": True}
+
+
+def _fill_templates(value: object, when: datetime) -> object:
+    if isinstance(value, str):
+        return value.replace("{{date}}", when.strftime("%Y%m%d")).replace("{{time}}", when.strftime("%H%M")).replace("{{iso}}", _utc(when).isoformat().replace("+00:00", "Z"))
+    if isinstance(value, list):
+        return [_fill_templates(item, when) for item in value]
+    if isinstance(value, dict):
+        return {key: _fill_templates(item, when) for key, item in value.items()}
+    return value
+
+
+def sample_event_input(profile: Profile, sample_id: str, now: datetime | None = None) -> EventInput:
+    """Build a server-owned payload from one profile catalog entry; clients supply only its ID."""
+    sample = next((item for item in profile.samples if item.id == sample_id), None)
+    if not sample:
+        raise BadRequest(f'Unknown sample "{sample_id}" for profile {profile.id}')
+    base: Sample = next((item for item in profile.samples if item.id == sample.duplicate_of), sample)
+    if not base.source or not base.event_type or not base.source_event_id or not base.description:
+        raise RuntimeError(f'Sample "{base.id}" is incomplete')
+    event_time = _utc(now or datetime.now(timezone.utc)) + timedelta(minutes=base.event_time_offset_min)
+    return EventInput(source=base.source, channel=base.channel, sourceEventId=base.source_event_id, eventType=base.event_type, eventTime=event_time, description=base.description, milestoneId=base.milestone_id, exceptionCategory=base.exception_category, notes=base.notes, details=_fill_templates(deepcopy(base.details), event_time))
+
+
+async def trigger_sample(db, profile: Profile, sample_id: str, now: datetime | None = None) -> dict:
+    now = _utc(now or datetime.now(timezone.utc))
+    return await ingest_event(db, profile, sample_event_input(profile, sample_id, now), received_at=now)
+
+
+async def timeline(db, profile: Profile) -> list[dict]:
+    events = db[COLLECTIONS["events"]]
+    pipeline = [
+        {"$match": {"profile": profile.id, "$or": [{"trackedEntityId": profile.entity_id}, {"trackedEntityId": {"$not": {"$type": "string"}}}]}},
+        {"$set": {"eventTimeType": {"$type": "$eventTime"}, "linked": {"$eq": [{"$type": "$trackedEntityId"}, "string"]}}},
+        {"$sort": {"eventTime": 1, "receivedAt": 1}},
+        {"$limit": 300},
+    ]
+    cursor = await events.aggregate(pipeline)
+    documents = [document async for document in cursor]
+    invalid_ids = {
+        str(document["_id"])
+        async for document in events.find({"_id": {"$in": [item["_id"] for item in documents]}, "$nor": [{"$jsonSchema": EVENT_ENVELOPE_SCHEMA}]}, {"_id": 1})
+    }
+    return [{**document, "_id": str(document["_id"]), "schemaValid": str(document["_id"]) not in invalid_ids} for document in documents]
+
+
+async def reliability_summary(db, profile: Profile) -> dict[str, object]:
+    pipeline = [
+        {"$match": {"profile": profile.id}},
+        {"$facet": {
+            "byStatus": [{"$group": {"_id": {"$ifNull": ["$reliability.status", "unclassified"]}, "events": {"$sum": 1}, "duplicatesSuppressed": {"$sum": {"$ifNull": ["$reliability.duplicateCount", 0]}}}}],
+            "unlinked": [{"$match": {"trackedEntityId": {"$not": {"$type": "string"}}}}, {"$count": "n"}],
+            "stringTimes": [{"$match": {"eventTime": {"$type": "string"}}}, {"$count": "n"}],
+        }},
+    ]
+    cursor = await db[COLLECTIONS["events"]].aggregate(pipeline)
+    result = await anext(cursor, {"byStatus": [], "unlinked": [], "stringTimes": []})
+    statuses = result["byStatus"]
+    return {"byStatus": {item["_id"]: item["events"] for item in statuses}, "duplicatesSuppressed": sum(item["duplicatesSuppressed"] for item in statuses), "unlinked": next(iter(result["unlinked"]), {}).get("n", 0), "stringEventTimes": next(iter(result["stringTimes"]), {}).get("n", 0)}

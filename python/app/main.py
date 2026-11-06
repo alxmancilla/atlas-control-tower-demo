@@ -12,14 +12,14 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from .config import Settings, redact
 from .db import connection_status, get_db, mongo_lifespan
 from .errors import AppError, Conflict, ServiceUnavailable
-from .events import ingest_event
+from .events import ingest_event, reliability_summary, timeline, trigger_sample
 from .exceptions import apply_exception_action, decide_recommended_action, exception_queue
 from .profiles import PROFILES, get_profile
 from .maintenance import maintenance_state, with_maintenance
 from .readiness import demo_clock_age, initialization_status
 from .reanchor import reanchor_demo
 from .search import find_similar, run_search, search_status
-from .schemas import EventInput, ExceptionActionInput, RecommendationDecisionInput, TelemetryReadingInput
+from .schemas import EventInput, ExceptionActionInput, RecommendationDecisionInput, SampleEventInput, TelemetryReadingInput
 from .security import guard_write_request
 from .services import entity_overview, kpi_snapshot, portfolio_overview
 from .telemetry import add_reading, telemetry_view
@@ -116,7 +116,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/overview")
     async def overview(request: Request, profile: str | None = None):
-        return await entity_overview(await view_ready(request), profile_from_query(profile))
+        db, selected = await view_ready(request), profile_from_query(profile)
+        result, reliability = await asyncio.gather(entity_overview(db, selected), reliability_summary(db, selected))
+        return {**result, "reliability": reliability}
 
     @app.get("/api/portfolio")
     async def portfolio(request: Request, profile: str | None = None):
@@ -145,6 +147,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         selected = profile_from_query(profile)
         return {"queue": await exception_queue(await view_ready(request), selected)}
 
+    @app.get("/api/timeline")
+    async def get_timeline(request: Request, profile: str | None = None):
+        return {"events": await timeline(await view_ready(request), profile_from_query(profile))}
+
     @app.get("/api/exceptions/{exception_id}/similar")
     async def similar_cases(request: Request, exception_id: str, limit: int = 3):
         if not 1 <= limit <= 10:
@@ -163,6 +169,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def post_event(request: Request, body: EventInput, profile: str | None = None):
         selected = profile_from_query(profile)
         return await ingest_event(await write_ready(request, selected), selected, body)
+
+    @app.post("/api/events/sample")
+    async def post_sample_event(request: Request, body: SampleEventInput, profile: str | None = None):
+        selected = profile_from_query(profile)
+        return await trigger_sample(await write_ready(request, selected), selected, body.sample_id)
 
     @app.post("/api/telemetry/reading")
     async def post_telemetry_reading(request: Request, body: TelemetryReadingInput, profile: str | None = None):

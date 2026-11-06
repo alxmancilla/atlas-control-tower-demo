@@ -10,6 +10,7 @@ class EventInput(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     source: str = Field(min_length=1, max_length=100)
+    channel: str | None = Field(default=None, max_length=50)
     source_event_id: str = Field(alias="sourceEventId", min_length=1, max_length=200)
     event_type: str = Field(alias="eventType", min_length=1, max_length=100)
     event_time: datetime = Field(alias="eventTime")
@@ -38,3 +39,9 @@ class RecommendationDecisionInput(BaseModel):
 
 class TelemetryReadingInput(BaseModel):
     kind: str = Field(min_length=1, max_length=20)
+
+
+class SampleEventInput(BaseModel):
+    sample_id: str = Field(alias="sampleId", min_length=1, max_length=100)
+
+    model_config = ConfigDict(populate_by_name=True)

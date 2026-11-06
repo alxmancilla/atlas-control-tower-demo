@@ -19,6 +19,7 @@ def test_health_and_profile_discovery_do_not_need_a_database():
         profiles = test_client.get("/api/profiles").json()
         assert profiles["defaultProfile"] == "retail"
         assert [profile["id"] for profile in profiles["profiles"]] == ["retail", "healthcare", "manufacturing"]
+        assert profiles["profiles"][0]["samples"][0]["id"] == "arrived_dc"
 
 
 def test_status_is_safe_without_a_connection_string():
