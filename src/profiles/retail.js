@@ -11,6 +11,16 @@ export default {
     origin: { id: 'DC-EAST-02', name: 'East Regional DC' },
     destination: { id: 'STORE-1187', name: 'Store #1187 Riverside' },
     metadata: { replenishmentOrder: 'RO-77821', temperatureClass: 'chilled', promoWindow: 'weekend berries promo' },
+    // One load, three store orders on a multi-stop route. stopOffsetMin is the extra drive time after the
+    // final milestone's projected arrival; position is the store's current stock (synthetic).
+    orderLines: [
+      { orderRef: 'RO-77821', stop: 1, stopOffsetMin: 0, destination: { id: 'STORE-1187', name: 'Store #1187 Riverside' },
+        itemRef: 'SKU-55120', quantity: 180, unit: 'cases', position: { onHand: 60, consumptionPerHour: 20 } },
+      { orderRef: 'RO-77822', stop: 2, stopOffsetMin: 45, destination: { id: 'STORE-1192', name: 'Store #1192 Hillcrest' },
+        itemRef: 'SKU-55120', quantity: 160, unit: 'cases', position: { onHand: 110, consumptionPerHour: 18 } },
+      { orderRef: 'RO-77823', stop: 3, stopOffsetMin: 90, destination: { id: 'STORE-1203', name: 'Store #1203 Lakeside' },
+        itemRef: 'SKU-55120', quantity: 140, unit: 'cases', position: { onHand: 70, consumptionPerHour: 15 } },
+    ],
   },
   sources: {
     carrier: { label: 'Carrier TMS feed', channel: 'edi' },
@@ -39,11 +49,10 @@ export default {
     acknowledgedPoints: -5,
     businessImpactPoints: { critical: 30, high: 20, watch: 5, none: 0 },
   },
-  // Destination stock the shipment replenishes. Synthetic numbers chosen so the delay creates a shortfall.
+  // Per-stop rule: cover at each store vs. that stop's projected arrival. {destination} is filled per stop.
   impact: {
     label: 'Store shelf cover',
-    position: { locationId: 'STORE-1187', itemRef: 'SKU-55120', onHand: 60, unit: 'cases', consumptionPerHour: 20 },
-    consequence: 'shelf empty at Store #1187 during the weekend promo',
+    consequence: 'shelf empty at {destination} during the weekend promo',
     criticalShortfallHours: 2,
     watchMarginHours: 1,
   },

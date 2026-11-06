@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assessImpact, impactSummary } from '../../src/domain/impact.js';
+import { assessImpact, assessLoadImpact, impactSummary } from '../../src/domain/impact.js';
+import { kpiPipeline } from '../../src/services/kpis.js';
 import { prioritizeException } from '../../src/domain/rules.js';
 import { buildEvent, buildHistoryException, fillTemplates } from '../../src/domain/documents.js';
 import { SEARCH_INDEXES, similarPipeline } from '../../src/services/search.js';
@@ -26,6 +27,31 @@ test('impact levels follow cover versus projected arrival', () => {
 test('delivered shipments and missing positions carry no impact', () => {
   assert.equal(assessImpact({ assessment: plan({ actualTime: at(-0.1) }), position: pos, now, cfg }).level, 'none');
   assert.equal(assessImpact({ assessment: plan({ projectedTime: at(9) }), position: null, now, cfg }).level, 'none');
+});
+
+test('a multi-stop load is assessed per stop and takes the worst stop level', () => {
+  const line = (stop, id, offsetMin) => ({ orderRef: `PO-${stop}`, stop, stopOffsetMin: offsetMin, destination: { id, name: `Store ${id}` }, itemRef: 'SKU-1', quantity: 50, unit: 'cases' });
+  const lines = [line(1, 'S1', 0), line(2, 'S2', 60), line(3, 'S3', 120)];
+  const positions = [
+    { locationId: 'S1', itemRef: 'SKU-1', ...pos, onHand: 50 }, // 2.5 h cover, arrives in 2 h
+    { locationId: 'S2', itemRef: 'SKU-1', ...pos, onHand: 200 }, // 10 h cover, arrives in 3 h
+    { locationId: 'S3', itemRef: 'SKU-1', ...pos, onHand: 20 }, // 1 h cover, arrives in 4 h
+  ];
+  const load = assessLoadImpact({ assessment: plan({ projectedTime: at(2) }), lines, positions, now, cfg });
+  assert.deepEqual(load.lines.map((l) => l.level), ['watch', 'none', 'critical']);
+  assert.deepEqual([load.level, load.lineCount, load.linesAtRisk, load.unitsShort, load.unit], ['critical', 3, 1, 60, 'cases']);
+  assert.match(load.reasons[0], /1 of 3 stops short: Store S3/);
+  assert.equal(impactSummary(load).linesAtRisk, 1);
+  const delivered = assessLoadImpact({ assessment: plan({ actualTime: at(-0.1) }), lines, positions, now, cfg });
+  assert.equal(delivered.level, 'none');
+  assert.equal(assessLoadImpact({ assessment: plan({ projectedTime: at(2) }), lines: [], positions, now, cfg }).lineCount, 0);
+});
+
+test('KPI pipeline is scoped to the profile and materializes one snapshot per profile with $merge', () => {
+  const p = kpiPipeline(retail);
+  assert.deepEqual(p[0].$match, { trackedEntityId: retail.entity.trackedEntityId, profile: 'retail' });
+  assert.deepEqual(p.at(-1).$merge, { into: 'kpi_snapshots', on: '_id', whenMatched: 'replace', whenNotMatched: 'insert' });
+  assert.equal(p.at(-2).$project._id, '$profile');
 });
 
 test('business impact adds explained priority points', () => {

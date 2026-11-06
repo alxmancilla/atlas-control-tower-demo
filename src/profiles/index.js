@@ -49,14 +49,20 @@ export function validateProfile(p) {
     if (h.entityId === p.entity?.trackedEntityId) errors.push(`history ${h.entityId} must use a past entity, not the current one`);
     if (!h.summary || !h.resolution) errors.push(`history ${h.entityId} needs summary and resolution`);
   }
-  const pos = p.impact?.position;
-  if (!pos) errors.push('impact.position is required');
-  else {
-    if (pos.locationId !== p.entity?.destination?.id || pos.itemRef !== p.entity?.product?.ref) {
-      errors.push('impact.position must match entity.destination.id and entity.product.ref');
-    }
-    if (!(pos.onHand >= 0 && pos.consumptionPerHour > 0)) errors.push('impact.position needs onHand >= 0 and consumptionPerHour > 0');
+  const lines = p.entity?.orderLines ?? [];
+  if (lines.length < 2) errors.push('entity.orderLines needs at least two lines');
+  if (lines[0] && lines[0].destination?.id !== p.entity?.destination?.id) errors.push('the first order line must go to entity.destination');
+  const qty = lines.reduce((n, l) => n + (l.quantity ?? 0), 0);
+  if (lines.length && qty !== p.entity?.product?.quantity) errors.push(`order line quantities (${qty}) must add up to entity.product.quantity`);
+  const keys = new Set();
+  for (const l of lines) {
+    const key = `${l.destination?.id}|${l.itemRef}`;
+    if (keys.has(key)) errors.push(`order line ${l.orderRef} repeats destination and item ${key}`);
+    keys.add(key);
+    if (!(l.stopOffsetMin >= 0)) errors.push(`order line ${l.orderRef} needs stopOffsetMin >= 0`);
+    if (!(l.position?.onHand >= 0 && l.position?.consumptionPerHour > 0)) errors.push(`order line ${l.orderRef} needs position.onHand >= 0 and consumptionPerHour > 0`);
   }
+  if (!p.impact?.consequence) errors.push('impact.consequence is required');
   for (const level of ['critical', 'high', 'watch', 'none']) {
     if (typeof p.priority?.businessImpactPoints?.[level] !== 'number') errors.push(`priority.businessImpactPoints.${level} must be a number`);
   }

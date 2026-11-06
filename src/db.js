@@ -8,6 +8,7 @@ export const COLL = {
   exceptions: 'exceptions',
   telemetry: 'telemetry_readings',
   positions: 'inventory_positions',
+  kpis: 'kpi_snapshots',
   state: 'demo_state',
 };
 
@@ -81,7 +82,7 @@ export async function collectionInfo(db) {
 export async function ensureSetup(db) {
   const existing = await collectionInfo(db);
   const created = [];
-  for (const name of [COLL.entities, COLL.events, COLL.exceptions, COLL.positions, COLL.state]) {
+  for (const name of [COLL.entities, COLL.events, COLL.exceptions, COLL.positions, COLL.kpis, COLL.state]) {
     if (!existing[name]) {
       await db.createCollection(name);
       created.push(name);

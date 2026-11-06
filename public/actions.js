@@ -1,7 +1,7 @@
 import { $, api, esc, json } from './lib.js';
 import { renderSearchResults, renderSearchStatus, renderResult } from './panels2.js';
 import { renderQueue } from './panels.js';
-import { state, q, refreshAll, refreshValidation, refreshTelemetry, refreshExceptions, selectProfile, showBanner, showDetail } from './app.js';
+import { state, q, refreshAll, refreshValidation, refreshTelemetry, refreshExceptions, refreshKpis, selectProfile, showBanner, showDetail } from './app.js';
 
 const errText = (err) => json({ error: err.message, ...(err.data?.codeName ? { codeName: err.data.codeName } : {}) });
 
@@ -104,6 +104,7 @@ export function bindActions() {
     guard(e.target, async () => renderSearchStatus((await api('/api/search/indexes', { method: 'POST' })).status))
   );
 
+  $('kpiRefresh').addEventListener('click', (e) => guard(e.target, () => refreshKpis(true)));
   $('telRefresh').addEventListener('click', (e) => guard(e.target, refreshTelemetry));
   for (const [id, kind] of [['telNormal', 'normal'], ['telExcursion', 'excursion']]) {
     $(id).addEventListener('click', (e) =>

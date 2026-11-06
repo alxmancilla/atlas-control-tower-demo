@@ -40,19 +40,22 @@ export function entityPipeline(profile) {
       },
     },
     {
-      // Stock at the destination for the shipped item (index location_item_unique).
+      // Stock at every stop on the load: an array localField matches each order line's destination
+      // (index location_item_unique), and the sub-pipeline keeps only the items on the load.
       $lookup: {
         from: COLL.positions,
-        localField: 'destination.id',
+        localField: 'orderLines.destination.id',
         foreignField: 'locationId',
-        let: { item: '$product.ref' },
-        pipeline: [{ $match: { $expr: { $eq: ['$itemRef', '$$item'] } } }, { $project: { _id: 0, onHand: 1, unit: 1, consumptionPerHour: 1, updatedAt: 1 } }],
-        as: 'position',
+        let: { items: { $ifNull: ['$orderLines.itemRef', []] } },
+        pipeline: [
+          { $match: { $expr: { $in: ['$itemRef', '$$items'] } } },
+          { $project: { _id: 0, locationId: 1, itemRef: 1, onHand: 1, unit: 1, consumptionPerHour: 1, updatedAt: 1 } },
+        ],
+        as: 'positions',
       },
     },
     {
       $set: {
-        position: { $first: '$position' },
         milestones: {
           $map: {
             input: { $sortArray: { input: '$plannedMilestones', sortBy: { sequence: 1 } } },
@@ -100,12 +103,13 @@ export async function entityOverview(db, profile, now = new Date()) {
       origin: doc.origin,
       destination: doc.destination,
       metadata: doc.metadata,
+      orderLines: doc.orderLines ?? [],
       anchorAt: doc.anchorAt,
     },
     latestReliableMilestone: doc.latestReliableMilestone ?? null,
     openExceptionCount: doc.openExceptionCount,
     openExceptionsBySeverity: Object.fromEntries(doc.openExceptions.map((x) => [x._id, x.n])),
-    position: doc.position ?? null,
+    positions: doc.positions ?? [],
     businessImpact: doc.businessImpact ?? null,
     assessment,
     evaluatedAt: now,

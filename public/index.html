@@ -23,6 +23,14 @@
 
   <section class="card">
     <div class="card-head">
+      <h2>Downstream impact</h2>
+      <span id="impactHead" class="muted"></span>
+    </div>
+    <div id="orderLines"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
       <h2>Live event flow</h2>
       <span class="muted">Each button writes a synthetic source event to Atlas. Views update from the change stream, not from this click.</span>
     </div>
@@ -45,6 +53,16 @@
       <div id="timeline" class="scroll"></div>
     </section>
   </div>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Control tower KPIs</h2>
+      <span id="kpiMeta" class="muted">materialized with $merge into kpi_snapshots</span>
+      <button id="kpiRefresh" class="secondary">Recompute</button>
+    </div>
+    <div id="kpis" class="overview"></div>
+    <div id="sourceReliability"></div>
+  </section>
 
   <div class="grid2">
     <section class="card">

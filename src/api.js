@@ -12,6 +12,7 @@ import { insertInvalidSample, insertValidEvent, removeInvalid, repairInvalid, tr
 import { cachedIsInitialized, resetDemo, setupDemo } from './services/setup.js';
 import { reanchorDemo } from './services/reanchor.js';
 import { isStale, recomputeImpact } from './services/impact.js';
+import { kpiSnapshot } from './services/kpis.js';
 
 export class HttpError extends StatusError {}
 
@@ -48,6 +49,7 @@ export const routes = {
     if (isStale(overview.businessImpact)) overview.businessImpact = await recomputeImpact(db, profile);
     return { ...overview, reliability, exceptionSummary: exceptions };
   },
+  'GET /api/kpis': async ({ db, profile, query }) => kpiSnapshot(db, profile, query.fresh ? { maxAgeMs: 0 } : {}),
   'GET /api/timeline': async ({ db, profile }) => ({ events: await timeline(db, profile, invalidDocumentsFilter()) }),
   'POST /api/events/sample': async ({ db, profile, body }) => triggerSample(db, profile, body.sampleId),
 

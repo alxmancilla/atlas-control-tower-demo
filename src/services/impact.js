@@ -1,16 +1,20 @@
 import { COLL } from '../db.js';
-import { assessImpact, impactSummary } from '../domain/impact.js';
+import { assessLoadImpact, impactSummary } from '../domain/impact.js';
 import { entityOverview } from './overview.js';
 
 // Recomputed results older than this are refreshed when the overview is read.
 export const IMPACT_MAX_AGE_MS = 5 * 60 * 1000;
 
-export async function seedPosition(db, profile, now = new Date()) {
-  const { locationId, itemRef, ...rest } = profile.impact.position;
-  const res = await db
-    .collection(COLL.positions)
-    .updateOne({ locationId, itemRef }, { $setOnInsert: { locationId, itemRef, ...rest, profile: profile.id, updatedAt: now } }, { upsert: true });
-  return res.upsertedCount ? 'created' : 'existing';
+// One stock position per stop on the load (destination + item).
+export async function seedPositions(db, profile, now = new Date()) {
+  const report = { created: 0, existing: 0 };
+  for (const line of profile.entity.orderLines) {
+    const locationId = line.destination.id;
+    const doc = { locationId, itemRef: line.itemRef, locationName: line.destination.name, unit: line.unit, ...line.position, profile: profile.id, updatedAt: now };
+    const res = await db.collection(COLL.positions).updateOne({ locationId, itemRef: line.itemRef }, { $setOnInsert: doc }, { upsert: true });
+    report[res.upsertedCount ? 'created' : 'existing'] += 1;
+  }
+  return report;
 }
 
 /**
@@ -21,7 +25,13 @@ export async function seedPosition(db, profile, now = new Date()) {
 export async function recomputeImpact(db, profile, now = new Date()) {
   const overview = await entityOverview(db, profile, now);
   if (!overview) return null;
-  const impact = assessImpact({ assessment: overview.assessment, position: overview.position, now, cfg: profile.impact });
+  const impact = assessLoadImpact({
+    assessment: overview.assessment,
+    lines: overview.entity.orderLines,
+    positions: overview.positions,
+    now,
+    cfg: profile.impact,
+  });
   const id = profile.entity.trackedEntityId;
   await db.collection(COLL.entities).updateOne({ trackedEntityId: id }, { $set: { businessImpact: impact } });
   await db

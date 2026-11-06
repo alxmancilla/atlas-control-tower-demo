@@ -7,7 +7,7 @@ export const idempotencyKey = (source, sourceEventId) => `${source}:${sourceEven
 export const byIdempotencyKey = (key) => ({ idempotencyKey: { $eq: key, $type: 'string' } });
 
 export function buildTrackedEntity(profile, anchorAt) {
-  const { trackedEntityId, entityKind, product, origin, destination, metadata } = profile.entity;
+  const { trackedEntityId, entityKind, product, origin, destination, metadata, orderLines = [] } = profile.entity;
   return {
     trackedEntityId,
     profile: profile.id,
@@ -15,6 +15,9 @@ export function buildTrackedEntity(profile, anchorAt) {
     product,
     origin,
     destination,
+    // Embedded: a load carries a handful of order lines that are always read with it.
+    // Stock lives in inventory_positions because it changes independently of the load.
+    orderLines: orderLines.map(({ position, ...line }) => line),
     plannedMilestones: profile.milestones.map((m, i) => ({
       milestoneId: m.id,
       label: m.label,

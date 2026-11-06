@@ -15,6 +15,7 @@ import { findSimilar, searchStatus } from '../../src/services/search.js';
 import { ChangeFeed } from '../../src/services/changeFeed.js';
 import { reanchorDemo, demoClockAge } from '../../src/services/reanchor.js';
 import { IMPACT_LEVELS } from '../../src/domain/impact.js';
+import { kpiSnapshot, refreshKpis } from '../../src/services/kpis.js';
 import { entityPipeline } from '../../src/services/overview.js';
 import { buildEvent, byIdempotencyKey, idempotencyKey } from '../../src/domain/documents.js';
 
@@ -277,9 +278,12 @@ test('ingest is transactional: a failure after the event insert rolls the event 
 test('business impact is computed on write and ranks exceptions', { skip }, async () => {
   const entity = await db.collection(COLL.entities).findOne({ trackedEntityId: profile.entity.trackedEntityId });
   assert.ok(IMPACT_LEVELS.includes(entity.businessImpact.level), JSON.stringify(entity.businessImpact));
-  assert.ok(entity.businessImpact.coverHours === 3, 'cover comes from the joined inventory position (60 cases at 20/h)');
+  const lines = entity.businessImpact.lines;
+  assert.equal(lines.length, profile.entity.orderLines.length, 'one impact row per order line on the load');
+  assert.deepEqual(lines.map((l) => l.coverHours), [3, 6.1, 4.7], 'cover comes from each stop\'s joined inventory position');
+  assert.ok(lines[2].arrivalAt - lines[0].arrivalAt === 90 * 60000, 'later stops arrive after their stop offset');
   const open = await db.collection(COLL.exceptions).find({ trackedEntityId: profile.entity.trackedEntityId, status: { $ne: 'resolved' } }).toArray();
-  assert.ok(open.length > 0 && open.every((e) => e.businessImpact?.level === entity.businessImpact.level));
+  assert.ok(open.length > 0 && open.every((e) => e.businessImpact?.level === entity.businessImpact.level && e.businessImpact.lineCount === 3));
   const [top] = await exceptionQueue(db, profile);
   if (['high', 'critical'].includes(entity.businessImpact.level)) assert.match(top.priority.reasons.join(' '), /business impact/);
 
@@ -287,6 +291,21 @@ test('business impact is computed on write and ranks exceptions', { skip }, asyn
   const after = await db.collection(COLL.entities).findOne({ trackedEntityId: profile.entity.trackedEntityId });
   assert.equal(after.businessImpact.level, 'none');
   assert.match(after.businessImpact.reasons[0], /supply restored/);
+});
+
+test('KPI snapshot is materialized with $merge and served from kpi_snapshots until stale', { skip }, async () => {
+  const fresh = await kpiSnapshot(db, profile, { maxAgeMs: 0 });
+  assert.equal(fresh.cached, false);
+  assert.equal(fresh._id, 'retail');
+  assert.ok(fresh.eventQuality.events > 0 && fresh.milestoneAdherence.completed > 0, JSON.stringify(fresh));
+  assert.ok(fresh.exceptions.resolvedCount >= profile.history.length, 'resolved history feeds MTTR');
+  assert.ok(fresh.sourceReliability.some((s) => s.source === 'carrier'));
+  assert.equal(await db.collection(COLL.kpis).countDocuments({ _id: 'retail' }), 1);
+  const cached = await kpiSnapshot(db, profile);
+  assert.equal(cached.cached, true);
+  assert.deepEqual(cached.computedAt, fresh.computedAt);
+  await refreshKpis(db, profile);
+  assert.equal(await db.collection(COLL.kpis).countDocuments({ _id: 'retail' }), 1, '$merge replaces, never duplicates');
 });
 
 test('resolved history is seeded per profile and kept out of the current queue', { skip }, async () => {

@@ -5,7 +5,7 @@ import { detectStage } from '../domain/schema.js';
 import { ingestEvent } from './events.js';
 import { applyExceptionAction, exceptionKeyFor } from './exceptions.js';
 import { seedTelemetry } from './telemetry.js';
-import { recomputeImpact, seedPosition } from './impact.js';
+import { recomputeImpact, seedPositions } from './impact.js';
 import { createSearchIndexes } from './search.js';
 import { memo, invalidate } from './cache.js';
 import { BadRequestError } from '../errors.js';
@@ -22,7 +22,7 @@ export async function seedProfile(db, profile, now = new Date()) {
   const up = await entities.updateOne({ trackedEntityId: fresh.trackedEntityId }, { $setOnInsert: fresh }, { upsert: true });
   if (up.upsertedCount) report.entity = 'created';
   const { anchorAt } = await entities.findOne({ trackedEntityId: fresh.trackedEntityId }, { projection: { anchorAt: 1 } });
-  report.position = await seedPosition(db, profile, now);
+  report.positions = await seedPositions(db, profile, now);
 
   const ordered = [...profile.seedEvents].sort((a, b) => a.eventTimeOffsetMin - b.eventTimeOffsetMin);
   for (const spec of ordered) {

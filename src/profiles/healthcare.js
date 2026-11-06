@@ -11,6 +11,15 @@ export default {
     origin: { id: 'HUB-CENTRAL', name: 'Central Supply Hub' },
     destination: { id: 'LAB-NORTH', name: 'Northside Facility Lab' },
     metadata: { transferOrder: 'TO-55021', handlingClass: '2-8C controlled', priorityLane: 'same-day' },
+    // One courier route, three facility orders. Stock levels are synthetic.
+    orderLines: [
+      { orderRef: 'TO-55021', stop: 1, stopOffsetMin: 0, destination: { id: 'LAB-NORTH', name: 'Northside Facility Lab' },
+        itemRef: 'RK-200', quantity: 12, unit: 'kits', position: { onHand: 6, consumptionPerHour: 3 } },
+      { orderRef: 'TO-55022', stop: 2, stopOffsetMin: 30, destination: { id: 'LAB-EAST', name: 'Eastside Clinic Lab' },
+        itemRef: 'RK-200', quantity: 12, unit: 'kits', position: { onHand: 12, consumptionPerHour: 3 } },
+      { orderRef: 'TO-55023', stop: 3, stopOffsetMin: 60, destination: { id: 'LAB-WEST', name: 'Westside Clinic Lab' },
+        itemRef: 'RK-200', quantity: 12, unit: 'kits', position: { onHand: 4, consumptionPerHour: 2 } },
+    ],
   },
   sources: {
     supply_hub: { label: 'Supply hub inventory system', channel: 'wms_scan' },
@@ -41,8 +50,7 @@ export default {
   },
   impact: {
     label: 'Lab reagent cover',
-    position: { locationId: 'LAB-NORTH', itemRef: 'RK-200', onHand: 6, unit: 'kits', consumptionPerHour: 3 },
-    consequence: 'Northside lab runs out of RK-200 kits and postpones scheduled runs',
+    consequence: '{destination} runs out of RK-200 kits and postpones scheduled runs',
     criticalShortfallHours: 1,
     watchMarginHours: 1,
   },

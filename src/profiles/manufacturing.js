@@ -11,6 +11,15 @@ export default {
     origin: { id: 'SUP-PCL', name: 'Precision Castings Ltd (supplier)' },
     destination: { id: 'PLANT3-LINE-B', name: 'Plant 3, Line B' },
     metadata: { purchaseOrder: 'PO-44190', workOrder: 'WO-7781', lineStartShift: 'B-shift' },
+    // One inbound lot split across three production lines (work orders). Line-side stock is synthetic.
+    orderLines: [
+      { orderRef: 'WO-7781', stop: 1, stopOffsetMin: 0, destination: { id: 'PLANT3-LINE-B', name: 'Plant 3, Line B' },
+        itemRef: 'HX-220', quantity: 250, unit: 'pieces', position: { onHand: 120, consumptionPerHour: 100 } },
+      { orderRef: 'WO-7784', stop: 2, stopOffsetMin: 20, destination: { id: 'PLANT3-LINE-C', name: 'Plant 3, Line C' },
+        itemRef: 'HX-220', quantity: 200, unit: 'pieces', position: { onHand: 400, consumptionPerHour: 80 } },
+      { orderRef: 'WO-7786', stop: 3, stopOffsetMin: 40, destination: { id: 'PLANT3-LINE-D', name: 'Plant 3, Line D' },
+        itemRef: 'HX-220', quantity: 150, unit: 'pieces', position: { onHand: 60, consumptionPerHour: 60 } },
+    ],
   },
   sources: {
     supplier_portal: { label: 'Supplier portal', channel: 'edi' },
@@ -42,8 +51,7 @@ export default {
   },
   impact: {
     label: 'Line-side material cover',
-    position: { locationId: 'PLANT3-LINE-B', itemRef: 'HX-220', onHand: 120, unit: 'pieces', consumptionPerHour: 100 },
-    consequence: 'Line B starves and B-shift production stops',
+    consequence: '{destination} starves and its work order stops',
     criticalShortfallHours: 1,
     watchMarginHours: 0.5,
   },

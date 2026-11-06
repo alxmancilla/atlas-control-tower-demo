@@ -1,6 +1,6 @@
 import { $, api, esc, fmtTime, debounce } from './lib.js';
 import { renderOverview, renderMilestones, renderTimeline, renderQueue, renderDetail, renderSimilar } from './panels.js';
-import { renderSearchStatus, renderSearchResults, renderTelemetry, renderValidation, renderResult } from './panels2.js';
+import { renderSearchStatus, renderSearchResults, renderTelemetry, renderValidation, renderResult, renderOrderLines, renderKpis } from './panels2.js';
 import { bindActions } from './actions.js';
 
 export const state = { meta: null, profileId: null, profile: null, queue: [], selectedId: null, flashId: null, ready: false, similar: {} };
@@ -77,7 +77,8 @@ function renderStatic() {
     ['Flexible document model', 'one validated event envelope; EDI segments, WMS scans, GPS pings, IoT readings, and API webhooks keep their own raw shape in <code>details.raw</code>'],
     ['Multi-document transactions', 'each event and its exception work item commit together (look for <b>txn</b> in the activity log)'],
     ['Aggregation pipeline', '<code>$lookup</code> + <code>$group</code> derive planned-versus-actual; <code>$facet</code> summarizes reliability'],
-    ['Computed pattern', 'business impact (stock cover vs. projected arrival) is derived on write via <code>$lookup</code> into inventory_positions and stored on the entity and open exceptions'],
+    ['Computed pattern', 'business impact per stop (stock cover vs. projected arrival) is derived on write via <code>$lookup</code> from the embedded order lines into inventory_positions and stored on the entity and open exceptions'],
+    ['Materialized view', 'one pipeline computes the control tower KPIs and writes them to kpi_snapshots with <code>$merge</code>; reads serve the snapshot until it is stale'],
     ['Unique indexes', 'idempotencyKey and exceptionKey make duplicate processing safe'],
     ['Change streams', 'database-level stream with resume tokens drives this page (SSE)'],
     ['MongoDB Search', '<code>$search</code> with highlights over event descriptions and exception notes'],
@@ -89,8 +90,18 @@ function renderStatic() {
 export async function refreshOverview() {
   const [o, t] = await Promise.all([api(q('/api/overview')), api(q('/api/timeline'))]);
   renderOverview(o, state.profile);
+  renderOrderLines(o.businessImpact, state.profile);
   renderMilestones(o);
   renderTimeline(t.events, o.reliability, state.flashId);
+}
+
+// fresh=true asks the server to rerun the $merge pipeline instead of serving the cached snapshot.
+export async function refreshKpis(fresh = false) {
+  try {
+    renderKpis(await api(q(`/api/kpis${fresh ? '?fresh=1' : ''}`)));
+  } catch (err) {
+    $('kpis').innerHTML = `<p class="small muted">${esc(err.message)}</p>`;
+  }
 }
 
 export async function refreshExceptions() {
@@ -135,7 +146,7 @@ export async function refreshTelemetry() {
 export async function refreshAll() {
   state.ready = await loadStatus().catch((err) => (showBanner(esc(err.message), true), false));
   if (!state.ready) return;
-  const tasks = [refreshOverview(), refreshExceptions(), refreshValidation(), refreshTelemetry()];
+  const tasks = [refreshOverview(), refreshExceptions(), refreshValidation(), refreshTelemetry(), refreshKpis()];
   const results = await Promise.allSettled(tasks);
   const failed = results.find((r) => r.status === 'rejected');
   if (failed) showBanner(esc(failed.reason.message), true);
@@ -147,6 +158,7 @@ const liveRefresh = debounce(async (colls) => {
   if (colls.has('operational_events') || colls.has('tracked_entities')) jobs.push(refreshOverview(), refreshValidation());
   if (colls.has('exceptions')) jobs.push(refreshExceptions(), refreshOverview());
   if (colls.has('demo_state')) jobs.push(refreshValidation());
+  if (colls.has('operational_events') || colls.has('exceptions')) jobs.push(refreshKpis(true));
   await Promise.allSettled(jobs);
   colls.clear();
 }, 250);

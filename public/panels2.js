@@ -93,6 +93,56 @@ export function renderValidation(v) {
     : `<p class="small">${badge('0 invalid documents', 'green')} Every document satisfies the proposed schema.${v.constraintGate.supported && v.stage !== 'constraint' ? ' The collection is ready for the constraint stage.' : ''}</p>`;
 }
 
+const IMPACT_TONE = { critical: 'red', high: 'red', watch: 'amber', none: 'green' };
+
+// One row per order line (stop) on the load: stock cover vs. that stop's projected arrival.
+export function renderOrderLines(impact, profile) {
+  if (!impact?.lines?.length) {
+    $('impactHead').textContent = '';
+    $('orderLines').innerHTML = '<p class="small muted">No order lines on this load.</p>';
+    return;
+  }
+  $('impactHead').innerHTML = `${impact.linesAtRisk} of ${impact.lineCount} ${esc(profile.vocabulary.destination.toLowerCase())}s short${impact.unitsShort ? ` · ${impact.unitsShort} ${esc(impact.unit)} short in total` : ''} · one load, one $lookup into inventory_positions`;
+  const rows = impact.lines.map(
+    (l) => `<tr>
+      <td>${l.stop}</td>
+      <td>${esc(l.destination.name)}<div class="small muted">${esc(l.orderRef)} · ${l.quantity} ${esc(l.unit)} of ${esc(l.itemRef)}</div></td>
+      <td>${l.onHand ?? '—'} ${esc(l.unit)}<div class="small muted">${l.coverHours ?? '—'} h of cover</div></td>
+      <td>${l.arrivalAt ? fmtTime(l.arrivalAt) : '—'}<div class="small muted">${l.etaHours != null ? `in ${l.etaHours} h` : ''}</div></td>
+      <td>${badge(l.level, IMPACT_TONE[l.level])}${l.shortfallHours > 0 ? ` ${l.shortfallHours} h short · ${l.unitsShort} ${esc(l.unit)}` : ''}
+        <div class="small muted">${esc(l.reasons.at(-1) ?? '')}</div></td></tr>`
+  );
+  $('orderLines').innerHTML = `<table><tr><th>Stop</th><th>Destination / order</th><th>On hand</th><th>Projected arrival</th><th>Impact</th></tr>${rows.join('')}</table>`;
+}
+
+const pct = (v) => (v == null ? '—' : `${v}%`);
+
+export function renderKpis(k) {
+  if (!k) {
+    $('kpis').innerHTML = '<p class="small muted">KPIs not computed yet.</p>';
+    return;
+  }
+  const kpi = (label, value, sub = '') => `<div class="kpi"><div class="label">${esc(label)}</div><div class="value">${value}</div><div class="small muted">${sub}</div></div>`;
+  const m = k.milestoneAdherence;
+  const q = k.eventQuality;
+  const e = k.exceptions;
+  const inv = k.inventoryAtRisk;
+  $('kpiMeta').textContent = `materialized with $merge into kpi_snapshots · computed ${fmtTime(k.computedAt)}`;
+  $('kpis').innerHTML = [
+    kpi('Milestone adherence', pct(m.onTimePct), `${m.onTime} of ${m.completed} completed milestones on time`),
+    kpi('Inventory at risk', `${inv.linesAtRisk ?? 0} of ${inv.lineCount ?? 0} stops`, inv.unitsShort ? `${inv.unitsShort} ${esc(inv.unit ?? '')} short` : 'no shortfall'),
+    kpi('Open exceptions', `${e.open}`, `${e.slaBreached} SLA breached${e.oldestOpenAgeMin != null ? ` · oldest ${e.oldestOpenAgeMin} min` : ''}`),
+    kpi('Mean time to resolve', e.mttrHours != null ? `${e.mttrHours} h` : '—', `${e.resolvedCount} resolved · ${pct(e.resolvedWithinSlaPct)} within SLA`),
+    kpi('Late event rate', pct(q.lateRatePct), `${q.events} stored events · ${q.invalidRecords} fail schema`),
+    kpi('Duplicate feed rate', pct(q.duplicateRatePct), `out-of-order ${pct(q.outOfOrderRatePct)}`),
+  ].join('');
+  $('sourceReliability').innerHTML = k.sourceReliability.length
+    ? `<h3>Source reliability</h3><table><tr><th>Source</th><th>Events</th><th>Late</th><th>Out of order</th><th>Duplicates</th><th>Reliable</th></tr>${k.sourceReliability
+        .map((s) => `<tr><td>${esc(s.source)}</td><td>${s.events}</td><td>${s.late}</td><td>${s.outOfOrder}</td><td>${s.duplicates}</td><td>${badge(pct(s.reliablePct), s.reliablePct >= 90 ? 'green' : s.reliablePct >= 70 ? 'amber' : 'red')}</td></tr>`)
+        .join('')}</table>`
+    : '';
+}
+
 export const renderResult = (id, obj) => {
   $(id).textContent = typeof obj === 'string' ? obj : json(obj);
 };
