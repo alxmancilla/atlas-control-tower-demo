@@ -1,10 +1,11 @@
 # Atlas Control Tower Demo
 
-A small operator console that runs against a **real MongoDB Atlas cluster**. It centers on three workflows:
+A small operator console that runs against a **real MongoDB Atlas cluster**. It turns noisy operational signals into prioritized work and explainable operator decisions through four workflows:
 
-1. **Exception workflow**: source events open, deduplicate, and link work items; operators acknowledge, assign, note, and resolve them with an audit trail.
-2. **Milestone risk**: planned-versus-actual milestones with transparent, rules-based risk (a rules estimate, not a prediction model).
-3. **Event reliability**: duplicate, late, out-of-order, and malformed events are labeled, and they never move the timeline backward.
+1. **Portfolio prioritization**: active loads are ranked by business impact, open work, and SLA urgency; one primary load offers the full interactive drill-down.
+2. **Exception-to-decision workflow**: source events open, deduplicate, and link work items; operators acknowledge, assign, and resolve them, and can accept or decline explainable recommended actions with an audit trail.
+3. **Milestone risk**: planned-versus-actual milestones with transparent, rules-based risk (a rules estimate, not a prediction model).
+4. **Event reliability**: duplicate, late, out-of-order, and malformed events are labeled, and they never move the timeline backward.
 
 Three synthetic domain profiles share the same workflow: **retail** (store replenishment shipment), **healthcare** (temperature-controlled lab supply transfer; operational data only, no patient data), and **manufacturing** (inbound component lot). All data is synthetic.
 
@@ -39,7 +40,7 @@ Reset drops and recreates only the demo collections, and it requires confirmatio
 npm run reset -- --confirm atlas_control_tower_demo
 ```
 
-**Before presenting, re-anchor.** Seeded times are relative to when setup ran, so hours later every milestone looks missed and telemetry falls outside the 8-hour window. Re-anchoring shifts all event, milestone, SLA, and audit times so the seed moment becomes "now". Every gap between them stays the same, and your changes are kept. Telemetry is regenerated, because time-series collections don't allow updating the time field. The UI offers **Re-anchor to now** once the data is more than 30 minutes old.
+**Before presenting, re-anchor.** Seeded times are relative to when setup ran, so hours later every milestone looks missed and telemetry falls outside the 8-hour window. Re-anchoring shifts event, milestone, SLA, audit, and portfolio trusted-signal times so the seed moment becomes "now". Every gap between them stays the same, and your changes are kept. Telemetry is regenerated, because time-series collections don't allow updating the time field. The UI offers **Re-anchor to now** once the data is more than 30 minutes old.
 
 ```bash
 npm run reanchor
