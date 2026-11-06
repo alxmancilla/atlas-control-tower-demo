@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import HTTPException
+from pymongo import AsyncMongoClient
+from pymongo.asynchronous.database import AsyncDatabase
+
+from .config import Settings, redact
+
+
+COLLECTIONS = {
+    "entities": "tracked_entities",
+    "events": "operational_events",
+    "exceptions": "exceptions",
+    "kpis": "kpi_snapshots",
+    "state": "demo_state",
+}
+
+
+@asynccontextmanager
+async def mongo_lifespan(app):
+    settings: Settings = app.state.settings
+    app.state.mongo_client = None
+    app.state.db = None
+    if settings.mongodb_uri:
+        app.state.mongo_client = AsyncMongoClient(
+            settings.mongodb_uri,
+            appname="atlas-control-tower-fastapi",
+            serverSelectionTimeoutMS=15_000,
+        )
+        app.state.db = app.state.mongo_client[settings.db_name]
+    try:
+        yield
+    finally:
+        if app.state.mongo_client:
+            await app.state.mongo_client.close()
+
+
+def get_db(app) -> AsyncDatabase:
+    if not app.state.db:
+        raise HTTPException(status_code=503, detail="MongoDB is not configured. Set MONGODB_URI to an Atlas cluster.")
+    return app.state.db
+
+
+async def connection_status(app) -> dict[str, object]:
+    settings: Settings = app.state.settings
+    base = {
+        "implementation": "python-fastapi",
+        "database": settings.db_name,
+        "target": settings.target,
+        "defaultProfile": settings.default_profile,
+        "adminTokenRequired": bool(settings.admin_token),
+    }
+    if not app.state.db:
+        return {**base, "connected": False, "error": "MONGODB_URI is not configured"}
+    try:
+        await app.state.db.command("ping")
+        return {**base, "connected": True}
+    except Exception as error:
+        return {**base, "connected": False, "error": redact(error)}
