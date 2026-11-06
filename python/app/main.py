@@ -11,6 +11,7 @@ from .errors import AppError, Conflict
 from .events import ingest_event
 from .exceptions import apply_exception_action, decide_recommended_action, exception_queue
 from .profiles import PROFILES, get_profile
+from .search import find_similar, run_search, search_status
 from .schemas import EventInput, ExceptionActionInput, RecommendationDecisionInput
 from .security import guard_write_request
 from .services import entity_overview, kpi_snapshot, portfolio_overview
@@ -67,10 +68,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def kpis(request: Request, profile: str | None = None, fresh: bool = False):
         return await kpi_snapshot(get_db(request.app), profile_from_query(profile), max_age_seconds=0 if fresh else 15)
 
+    @app.get("/api/search/status")
+    async def get_search_status(request: Request):
+        return await search_status(get_db(request.app))
+
+    @app.get("/api/search")
+    async def search(request: Request, q: str | None = None, profile: str | None = None, kind: str = "all", source: str | None = None, event_type: str | None = None, status: str | None = None, limit: int = 10):
+        if not 1 <= limit <= 25:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 25")
+        return await run_search(get_db(request.app), profile_from_query(profile), q=q, kind=kind, source=source, event_type=event_type, status=status, limit=limit)
+
     @app.get("/api/exceptions")
     async def exceptions(request: Request, profile: str | None = None):
         selected = profile_from_query(profile)
         return {"queue": await exception_queue(get_db(request.app), selected)}
+
+    @app.get("/api/exceptions/{exception_id}/similar")
+    async def similar_cases(request: Request, exception_id: str, limit: int = 3):
+        if not 1 <= limit <= 10:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 10")
+        return await find_similar(get_db(request.app), exception_id, limit=limit)
 
     @app.post("/api/events")
     async def post_event(request: Request, body: EventInput, profile: str | None = None):

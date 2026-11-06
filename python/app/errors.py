@@ -18,3 +18,8 @@ class NotFound(AppError):
 class Conflict(AppError):
     def __init__(self, detail: str):
         super().__init__(409, detail)
+
+
+class ServiceUnavailable(AppError):
+    def __init__(self, detail: str):
+        super().__init__(503, detail)
