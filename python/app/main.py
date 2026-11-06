@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .config import Settings
 from .db import connection_status, get_db, mongo_lifespan
@@ -24,6 +27,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.middleware("http")(guard_write_request)
 
+    def sse_event(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), separators=(',', ':'))}\n\n"
+
+    async def stream_events(request: Request):
+        yield "retry: 3000\n\n"
+        feed = request.app.state.change_feed
+        if not feed:
+            yield sse_event("stream-status", {"state": "unavailable", "error": "Not connected to Atlas"})
+            return
+        queue = feed.subscribe()
+        try:
+            yield sse_event("stream-status", feed.state)
+            while not await request.is_disconnected():
+                try:
+                    event, data = await asyncio.wait_for(queue.get(), timeout=20)
+                    yield sse_event(event, data)
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+        finally:
+            feed.unsubscribe(queue)
+
     @app.exception_handler(AppError)
     async def app_error_handler(_: Request, error: AppError):
         return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
@@ -35,6 +59,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/status")
     async def status(request: Request):
         return await connection_status(request.app)
+
+    @app.get("/api/stream")
+    async def stream(request: Request):
+        return StreamingResponse(stream_events(request), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"})
 
     @app.get("/api/profiles")
     async def profiles():

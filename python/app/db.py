@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
+from .change_feed import ChangeFeed
 from .config import Settings, redact
 
 
@@ -24,6 +25,7 @@ async def mongo_lifespan(app):
     settings: Settings = app.state.settings
     app.state.mongo_client = None
     app.state.db = None
+    app.state.change_feed = None
     if settings.mongodb_uri:
         app.state.mongo_client = AsyncMongoClient(
             settings.mongodb_uri,
@@ -31,9 +33,12 @@ async def mongo_lifespan(app):
             serverSelectionTimeoutMS=15_000,
         )
         app.state.db = app.state.mongo_client[settings.db_name]
+        app.state.change_feed = ChangeFeed(app.state.db).start()
     try:
         yield
     finally:
+        if app.state.change_feed:
+            await app.state.change_feed.stop()
         if app.state.mongo_client:
             await app.state.mongo_client.close()
 
@@ -52,6 +57,7 @@ async def connection_status(app) -> dict[str, object]:
         "target": settings.target,
         "defaultProfile": settings.default_profile,
         "adminTokenRequired": bool(settings.admin_token),
+        "changeStream": app.state.change_feed.state if app.state.change_feed else {"state": "unavailable", "error": "MongoDB is not configured"},
     }
     if not app.state.db:
         return {**base, "connected": False, "error": "MONGODB_URI is not configured"}

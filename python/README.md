@@ -14,6 +14,7 @@ The Python service defaults to port `8000`; set `PYTHON_PORT` to override it. It
 
 - `GET /health`
 - `GET /api/status`
+- `GET /api/stream` (Server-Sent Events)
 - `GET /api/profiles`
 - `GET /api/overview?profile=retail`
 - `GET /api/portfolio?profile=retail`
@@ -30,6 +31,6 @@ The Python service defaults to port `8000`; set `PYTHON_PORT` to override it. It
 
 Event submission validates its source, milestone, and category against the selected profile. It stores an event and its exception work item in a multi-document transaction, suppresses duplicate source events using the Node-compatible `idempotencyKey`, and keeps a bounded exception audit trail. Operator actions support acknowledge, assign, note, resolve, and one-time accept/decline decisions for seeded recommendations.
 
-The overview and portfolio routes run their own MongoDB aggregations. The KPI route materializes one profile snapshot with `$merge` when it is missing or older than 15 seconds; add `fresh=true` to force immediate refresh. The telemetry route uses the existing `telemetry_readings` time-series collection to calculate a six-reading moving average, range excursions, and summary statistics. Setup/reset, change streams, and the UI are later ports.
+The overview and portfolio routes run their own MongoDB aggregations. The KPI route materializes one profile snapshot with `$merge` when it is missing or older than 15 seconds; add `fresh=true` to force immediate refresh. The telemetry route uses the existing `telemetry_readings` time-series collection to calculate a six-reading moving average, range excursions, and summary statistics. The application-scoped Change Stream watches events, exceptions, entities, and maintenance state, then broadcasts compact summaries over SSE. It retains resume tokens only while the server runs, reconnects with bounded backoff, and asks clients to resync after non-resumable failures. Setup/reset and the UI are later ports.
 
 Search routes are read-only. They report existing Atlas Search and Automated Embedding index readiness, and they refuse queries until the corresponding indexes are queryable. This Python service does not create or modify search indexes.
