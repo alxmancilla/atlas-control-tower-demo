@@ -21,6 +21,15 @@ export default {
         itemRef: 'RK-200', quantity: 12, unit: 'kits', position: { onHand: 4, consumptionPerHour: 2 } },
     ],
   },
+  portfolio: [
+    { trackedEntityId: 'HC-TRF-3308', reference: 'TO-55022', destination: { id: 'LAB-SOUTH', name: 'Southside Facility Lab' }, state: 'in_transit',
+      lastSignal: { source: 'courier', offsetMin: -9, description: 'Courier GPS: cold-chain transfer on route' }, impact: { level: 'none', lineCount: 1 } },
+    { trackedEntityId: 'HC-TRF-3309', reference: 'TO-55023', destination: { id: 'LAB-WEST', name: 'Westside Clinic Lab' }, state: 'delayed',
+      lastSignal: { source: 'courier', offsetMin: -31, description: 'Courier: vehicle reassigned after breakdown' }, impact: { level: 'critical', linesAtRisk: 1, lineCount: 1, unitsShort: 6 },
+      exception: { category: 'delayed_handoff', slaOffsetMin: 20, summary: 'Replacement courier required before reagent stockout', owner: 'coordinator.ortiz' } },
+    { trackedEntityId: 'HC-TRF-3310', reference: 'TO-55024', destination: { id: 'LAB-EAST', name: 'Eastside Clinic Lab' }, state: 'at_risk',
+      lastSignal: { source: 'supply_hub', offsetMin: -18, description: 'Supply hub: transfer released to carrier' }, impact: { level: 'watch', lineCount: 2 } },
+  ],
   sources: {
     supply_hub: { label: 'Supply hub inventory system', channel: 'wms_scan' },
     courier: { label: 'Courier dispatch app', channel: 'api' },

@@ -32,6 +32,75 @@ export function buildTrackedEntity(profile, anchorAt) {
   };
 }
 
+// Compact active-load records for the portfolio view. The primary profile entity remains the
+// fully interactive event timeline; these records model the surrounding operational workload.
+export function buildPortfolioEntities(profile, anchorAt) {
+  return (profile.portfolio ?? []).map((item) => ({
+    trackedEntityId: item.trackedEntityId,
+    profile: profile.id,
+    entityKind: profile.entity.entityKind,
+    product: item.product ?? profile.entity.product,
+    origin: item.origin ?? profile.entity.origin,
+    destination: item.destination,
+    orderLines: [],
+    plannedMilestones: [],
+    metadata: { ...profile.entity.metadata, portfolioReference: item.reference },
+    anchorAt: new Date(anchorAt),
+    businessImpact: {
+      level: item.impact.level,
+      linesAtRisk: item.impact.linesAtRisk ?? 0,
+      lineCount: item.impact.lineCount ?? 0,
+      unitsShort: item.impact.unitsShort ?? 0,
+      unit: item.impact.unit ?? profile.entity.product.unit,
+      computedAt: new Date(anchorAt),
+    },
+    portfolio: {
+      state: item.state,
+      lastTrustedSignal: {
+        source: item.lastSignal.source,
+        description: item.lastSignal.description,
+        at: addMinutes(anchorAt, item.lastSignal.offsetMin),
+      },
+    },
+    demo: { seeded: true, portfolio: true },
+  }));
+}
+
+export function buildPortfolioException(profile, item, anchorAt) {
+  if (!item.exception) return null;
+  const cfg = profile.exceptionCategories[item.exception.category];
+  const openedAt = addMinutes(anchorAt, item.exception.openedOffsetMin ?? -30);
+  return {
+    exceptionId: `PORT-${item.trackedEntityId}`,
+    exceptionKey: `${profile.id}:${item.trackedEntityId}:${item.exception.category}`,
+    trackedEntityId: item.trackedEntityId,
+    profile: profile.id,
+    category: item.exception.category,
+    categoryLabel: cfg.label,
+    severity: item.exception.severity ?? cfg.severity,
+    impact: cfg.impact,
+    status: 'open',
+    owner: item.exception.owner ?? null,
+    summary: item.exception.summary,
+    triggeringEvent: null,
+    relatedEventIds: [],
+    slaDueAt: addMinutes(anchorAt, item.exception.slaOffsetMin),
+    createdAt: openedAt,
+    updatedAt: new Date(anchorAt),
+    resolution: null,
+    businessImpact: {
+      level: item.impact.level,
+      linesAtRisk: item.impact.linesAtRisk ?? 0,
+      lineCount: item.impact.lineCount ?? 0,
+      unitsShort: item.impact.unitsShort ?? 0,
+      unit: item.impact.unit ?? profile.entity.product.unit,
+      computedAt: new Date(anchorAt),
+    },
+    audit: [{ at: openedAt, action: 'opened', by: `source:${item.lastSignal.source}`, note: item.exception.summary }],
+    demo: { seeded: true, portfolio: true },
+  };
+}
+
 // How an event reached the platform. Each channel keeps its own raw payload shape in details.raw.
 export const CHANNELS = ['edi', 'api', 'wms_scan', 'gps', 'iot', 'manual', 'batch_file'];
 

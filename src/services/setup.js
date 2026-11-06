@@ -1,6 +1,6 @@
 import { COLL, INDEXES, collectionInfo, ensureSetup, serverError } from '../db.js';
 import { PROFILES } from '../profiles/index.js';
-import { buildEvent, buildHistoryException, buildInvalidEvent, buildTrackedEntity, byIdempotencyKey } from '../domain/documents.js';
+import { buildEvent, buildHistoryException, buildInvalidEvent, buildPortfolioEntities, buildPortfolioException, buildTrackedEntity, byIdempotencyKey } from '../domain/documents.js';
 import { detectStage } from '../domain/schema.js';
 import { ingestEvent } from './events.js';
 import { applyExceptionAction, exceptionKeyFor } from './exceptions.js';
@@ -16,12 +16,23 @@ import { BadRequestError } from '../errors.js';
  * invalid samples by demo.sampleId.
  */
 export async function seedProfile(db, profile, now = new Date()) {
-  const report = { profile: profile.id, entity: 'existing', events: {}, invalidSamples: [], telemetry: null };
+  const report = { profile: profile.id, entity: 'existing', portfolio: { entities: 0, exceptions: 0 }, events: {}, invalidSamples: [], telemetry: null };
   const entities = db.collection(COLL.entities);
   const fresh = buildTrackedEntity(profile, now);
   const up = await entities.updateOne({ trackedEntityId: fresh.trackedEntityId }, { $setOnInsert: fresh }, { upsert: true });
   if (up.upsertedCount) report.entity = 'created';
   const { anchorAt } = await entities.findOne({ trackedEntityId: fresh.trackedEntityId }, { projection: { anchorAt: 1 } });
+  const portfolioEntities = buildPortfolioEntities(profile, anchorAt);
+  for (const item of profile.portfolio ?? []) {
+    const entity = portfolioEntities.find((doc) => doc.trackedEntityId === item.trackedEntityId);
+    const res = await entities.updateOne({ trackedEntityId: entity.trackedEntityId }, { $setOnInsert: entity }, { upsert: true });
+    report.portfolio.entities += res.upsertedCount;
+    const exception = buildPortfolioException(profile, item, anchorAt);
+    if (exception) {
+      const ex = await db.collection(COLL.exceptions).updateOne({ exceptionKey: exception.exceptionKey }, { $setOnInsert: exception }, { upsert: true });
+      report.portfolio.exceptions += ex.upsertedCount;
+    }
+  }
   report.positions = await seedPositions(db, profile, now);
 
   const ordered = [...profile.seedEvents].sort((a, b) => a.eventTimeOffsetMin - b.eventTimeOffsetMin);

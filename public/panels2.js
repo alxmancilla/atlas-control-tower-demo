@@ -95,6 +95,23 @@ export function renderValidation(v) {
 
 const IMPACT_TONE = { critical: 'red', high: 'red', watch: 'amber', none: 'green' };
 
+export function renderPortfolio(p) {
+  const s = p.summary;
+  $('portfolioSummary').innerHTML = `${s.total} active loads · ${badge(`${s.critical} critical`, 'red')} ${badge(`${s.high} high`, 'red')} ${badge(`${s.watch} watch`, 'amber')} · ${s.openExceptions} open exception${s.openExceptions === 1 ? '' : 's'}`;
+  const rows = p.loads.map((load) => {
+    const impact = load.businessImpact ?? { level: 'none' };
+    const signal = load.lastTrustedSignal;
+    const exception = load.nearestException;
+    return `<tr class="${load.interactive ? 'primary-load' : ''}">
+      <td>${esc(load.trackedEntityId)}${load.interactive ? `<div>${badge('interactive primary', 'blue')}</div>` : ''}</td>
+      <td>${esc(load.product.name)}<div class="small muted">${esc(load.origin.name)} → ${esc(load.destination.name)}</div></td>
+      <td>${badge(impact.level, IMPACT_TONE[impact.level])}${impact.linesAtRisk ? `<div class="small muted">${impact.linesAtRisk} stop${impact.linesAtRisk === 1 ? '' : 's'} at risk · ${impact.unitsShort} ${esc(impact.unit)} short</div>` : ''}</td>
+      <td>${signal ? `${esc(signal.description)}<div class="small muted">${esc(signal.source)} · ${fmtTime(signal.at)}</div>` : '<span class="small muted">Interactive timeline below</span>'}</td>
+      <td>${exception ? `${esc(exception.categoryLabel)}<div class="small muted">SLA ${fmtTime(exception.slaDueAt)} · ${esc(exception.owner ?? 'unassigned')}</div>` : '<span class="muted">—</span>'}</td></tr>`;
+  });
+  $('portfolio').innerHTML = `<table><tr><th>Load</th><th>Route / item</th><th>Business impact</th><th>Last trusted signal</th><th>Nearest open exception</th></tr>${rows.join('')}</table>`;
+}
+
 // One row per order line (stop) on the load: stock cover vs. that stop's projected arrival.
 export function renderOrderLines(impact, profile) {
   if (!impact?.lines?.length) {

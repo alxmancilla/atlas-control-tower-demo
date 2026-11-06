@@ -47,6 +47,20 @@ export const entityShiftPipeline = (ms) => [
       plannedMilestones: {
         $map: { input: '$plannedMilestones', as: 'm', in: { $mergeObjects: ['$$m', { plannedTime: { $add: ['$$m.plannedTime', ms] } }] } },
       },
+      businessImpact: {
+        $cond: [
+          { $eq: [{ $type: '$businessImpact.computedAt' }, 'date'] },
+          { $mergeObjects: ['$businessImpact', { computedAt: { $add: ['$businessImpact.computedAt', ms] } }] },
+          '$businessImpact',
+        ],
+      },
+      portfolio: {
+        $cond: [
+          { $eq: [{ $type: '$portfolio.lastTrustedSignal.at' }, 'date'] },
+          { $mergeObjects: ['$portfolio', { lastTrustedSignal: { $mergeObjects: ['$portfolio.lastTrustedSignal', { at: { $add: ['$portfolio.lastTrustedSignal.at', ms] } }] } }] },
+          '$portfolio',
+        ],
+      },
     },
   },
 ];

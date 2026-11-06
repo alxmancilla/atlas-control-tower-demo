@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectStage, planTransition, stageCommand } from '../../src/domain/schema.js';
-import { buildEvent, buildInvalidEvent, buildTrackedEntity, planRepair } from '../../src/domain/documents.js';
+import { buildEvent, buildInvalidEvent, buildPortfolioEntities, buildPortfolioException, buildTrackedEntity, planRepair } from '../../src/domain/documents.js';
 import { PROFILE_IDS, getProfile, validateProfile } from '../../src/profiles/index.js';
 import { assertDemoDbName, isAtlasHost, loadConfig, redact, targetLabel } from '../../src/config.js';
 import { matchRoute } from '../../src/api.js';
@@ -41,6 +41,12 @@ test('every profile is structurally valid and builds envelope documents', () => 
     assert.deepEqual(validateProfile(p), [], id);
     const ent = buildTrackedEntity(p, now);
     assert.equal(ent.plannedMilestones.length, p.milestones.length);
+    const portfolio = buildPortfolioEntities(p, now);
+    assert.equal(portfolio.length, 3);
+    assert.ok(portfolio.every((load) => load.demo.portfolio && load.portfolio.lastTrustedSignal.at instanceof Date));
+    const withException = p.portfolio.find((load) => load.exception);
+    const work = buildPortfolioException(p, withException, now);
+    assert.equal(work.exceptionKey, `${p.id}:${withException.trackedEntityId}:${withException.exception.category}`);
     const evt = buildEvent(p, p.samples.find((s) => !s.duplicateOf), { now });
     assert.equal(evt.idempotencyKey, `${evt.source}:${evt.sourceEventId}`);
     assert.ok(evt.eventTime instanceof Date);

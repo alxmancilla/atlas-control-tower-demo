@@ -43,6 +43,7 @@ th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line
 th { color: var(--muted); font-weight: 600; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover, tr.selected { background: var(--gray-bg); }
+tr.primary-load { background: var(--blue-bg); }
 tr.flash { animation: flash 2s ease-out; }
 @keyframes flash { from { background: var(--blue-bg); } to { background: transparent; } }
 .badge { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 11px; font-weight: 600; margin: 1px 2px 1px 0; white-space: nowrap; background: var(--gray-bg); color: var(--ink); }

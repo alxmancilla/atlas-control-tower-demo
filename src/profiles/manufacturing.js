@@ -21,6 +21,15 @@ export default {
         itemRef: 'HX-220', quantity: 150, unit: 'pieces', position: { onHand: 60, consumptionPerHour: 60 } },
     ],
   },
+  portfolio: [
+    { trackedEntityId: 'MFG-LOT-8843', reference: 'PO-44191', destination: { id: 'PLANT3-LINE-E', name: 'Plant 3, Line E' }, state: 'in_transit',
+      lastSignal: { source: 'supplier_portal', offsetMin: -14, description: 'Supplier ASN: shipment departed' }, impact: { level: 'none', lineCount: 1 } },
+    { trackedEntityId: 'MFG-LOT-8844', reference: 'PO-44192', destination: { id: 'PLANT3-LINE-F', name: 'Plant 3, Line F' }, state: 'delayed',
+      lastSignal: { source: 'supplier_portal', offsetMin: -46, description: 'Supplier: port congestion affects pickup' }, impact: { level: 'high', linesAtRisk: 1, lineCount: 1, unitsShort: 80 },
+      exception: { category: 'production_risk_delay', slaOffsetMin: 35, summary: 'Component delay threatens Line F production start', owner: 'materials.chen' } },
+    { trackedEntityId: 'MFG-LOT-8845', reference: 'PO-44193', destination: { id: 'PLANT3-LINE-G', name: 'Plant 3, Line G' }, state: 'at_risk',
+      lastSignal: { source: 'receiving_dock', offsetMin: -22, description: 'Yard update: trailer awaiting dock assignment' }, impact: { level: 'watch', lineCount: 1 } },
+  ],
   sources: {
     supplier_portal: { label: 'Supplier portal', channel: 'edi' },
     receiving_dock: { label: 'Plant receiving dock', channel: 'wms_scan' },

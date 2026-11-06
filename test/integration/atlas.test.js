@@ -16,6 +16,7 @@ import { ChangeFeed } from '../../src/services/changeFeed.js';
 import { reanchorDemo, demoClockAge } from '../../src/services/reanchor.js';
 import { IMPACT_LEVELS } from '../../src/domain/impact.js';
 import { kpiSnapshot, refreshKpis } from '../../src/services/kpis.js';
+import { portfolioOverview } from '../../src/services/portfolio.js';
 import { entityPipeline } from '../../src/services/overview.js';
 import { buildEvent, byIdempotencyKey, idempotencyKey } from '../../src/domain/documents.js';
 
@@ -38,10 +39,20 @@ after(async () => client?.close());
 test('setup creates collections, a time-series telemetry collection, and seeds every profile', { skip }, async () => {
   const colls = Object.fromEntries((await db.listCollections().toArray()).map((c) => [c.name, c.type]));
   assert.equal(colls[COLL.telemetry], 'timeseries');
-  assert.equal(await db.collection(COLL.entities).countDocuments(), 3);
+  assert.equal(await db.collection(COLL.entities).countDocuments(), 12);
   const again = await resetDemo(db, db.databaseName, { withSearch: false });
-  assert.equal(await db.collection(COLL.entities).countDocuments(), 3, 'reset + reseed stays idempotent');
+  assert.equal(await db.collection(COLL.entities).countDocuments(), 12, 'reset + reseed stays idempotent');
   assert.ok(again.dropped.includes(COLL.events));
+});
+
+test('portfolio lists the primary load and synthetic active-load context in business-impact order', { skip }, async () => {
+  const portfolio = await portfolioOverview(db, profile);
+  assert.deepEqual(portfolio.summary, { total: 4, critical: 0, high: 2, watch: 1, openExceptions: 3 });
+  assert.equal(portfolio.loads[0].trackedEntityId, profile.entity.trackedEntityId, 'the primary high-impact load has two open exceptions');
+  assert.equal(portfolio.loads[0].interactive, true);
+  const delayed = portfolio.loads.find((load) => load.trackedEntityId === 'RTL-SHP-24019');
+  assert.equal(delayed.nearestException.owner, 'planner.lee');
+  assert.match(delayed.lastTrustedSignal.description, /delay at cross-dock/);
 });
 
 test('re-running setup on seeded data is a no-op: seed events are not counted as duplicates', { skip }, async () => {

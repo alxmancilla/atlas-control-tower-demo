@@ -1,6 +1,6 @@
 import { $, api, esc, fmtTime, debounce } from './lib.js';
 import { renderOverview, renderMilestones, renderTimeline, renderQueue, renderDetail, renderSimilar } from './panels.js';
-import { renderSearchStatus, renderSearchResults, renderTelemetry, renderValidation, renderResult, renderOrderLines, renderKpis } from './panels2.js';
+import { renderSearchStatus, renderSearchResults, renderTelemetry, renderValidation, renderResult, renderOrderLines, renderKpis, renderPortfolio } from './panels2.js';
 import { bindActions } from './actions.js';
 
 export const state = { meta: null, profileId: null, profile: null, queue: [], selectedId: null, flashId: null, ready: false, similar: {} };
@@ -95,6 +95,8 @@ export async function refreshOverview() {
   renderTimeline(t.events, o.reliability, state.flashId);
 }
 
+export const refreshPortfolio = async () => renderPortfolio(await api(q('/api/portfolio')));
+
 // fresh=true asks the server to rerun the $merge pipeline instead of serving the cached snapshot.
 export async function refreshKpis(fresh = false) {
   try {
@@ -146,7 +148,7 @@ export async function refreshTelemetry() {
 export async function refreshAll() {
   state.ready = await loadStatus().catch((err) => (showBanner(esc(err.message), true), false));
   if (!state.ready) return;
-  const tasks = [refreshOverview(), refreshExceptions(), refreshValidation(), refreshTelemetry(), refreshKpis()];
+  const tasks = [refreshPortfolio(), refreshOverview(), refreshExceptions(), refreshValidation(), refreshTelemetry(), refreshKpis()];
   const results = await Promise.allSettled(tasks);
   const failed = results.find((r) => r.status === 'rejected');
   if (failed) showBanner(esc(failed.reason.message), true);
@@ -155,8 +157,8 @@ export async function refreshAll() {
 const liveRefresh = debounce(async (colls) => {
   if (!state.ready) return refreshAll();
   const jobs = [];
-  if (colls.has('operational_events') || colls.has('tracked_entities')) jobs.push(refreshOverview(), refreshValidation());
-  if (colls.has('exceptions')) jobs.push(refreshExceptions(), refreshOverview());
+  if (colls.has('operational_events') || colls.has('tracked_entities')) jobs.push(refreshOverview(), refreshPortfolio(), refreshValidation());
+  if (colls.has('exceptions')) jobs.push(refreshExceptions(), refreshOverview(), refreshPortfolio());
   if (colls.has('demo_state')) jobs.push(refreshValidation());
   if (colls.has('operational_events') || colls.has('exceptions')) jobs.push(refreshKpis(true));
   await Promise.allSettled(jobs);

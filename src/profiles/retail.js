@@ -22,6 +22,15 @@ export default {
         itemRef: 'SKU-55120', quantity: 140, unit: 'cases', position: { onHand: 70, consumptionPerHour: 15 } },
     ],
   },
+  portfolio: [
+    { trackedEntityId: 'RTL-SHP-24018', reference: 'RO-77824', destination: { id: 'STORE-1210', name: 'Store #1210 Midtown' }, state: 'in_transit',
+      lastSignal: { source: 'carrier', offsetMin: -12, description: 'GPS ping: vehicle on route' }, impact: { level: 'none', lineCount: 2 } },
+    { trackedEntityId: 'RTL-SHP-24019', reference: 'RO-77825', destination: { id: 'STORE-1226', name: 'Store #1226 Airport' }, state: 'delayed',
+      lastSignal: { source: 'carrier', offsetMin: -38, description: 'EDI 214: delay at cross-dock' }, impact: { level: 'high', linesAtRisk: 1, lineCount: 2, unitsShort: 18 },
+      exception: { category: 'delivery_delay', slaOffsetMin: 50, summary: 'Cross-dock delay threatens morning replenishment window', owner: 'planner.lee' } },
+    { trackedEntityId: 'RTL-SHP-24020', reference: 'RO-77826', destination: { id: 'STORE-1231', name: 'Store #1231 Harbor' }, state: 'at_risk',
+      lastSignal: { source: 'dc_wms', offsetMin: -26, description: 'WMS: outbound pallet staged, waiting for carrier' }, impact: { level: 'watch', lineCount: 1 } },
+  ],
   sources: {
     carrier: { label: 'Carrier TMS feed', channel: 'edi' },
     dc_wms: { label: 'DC warehouse system (WMS)', channel: 'wms_scan' },

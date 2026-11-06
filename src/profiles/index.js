@@ -49,6 +49,16 @@ export function validateProfile(p) {
     if (h.entityId === p.entity?.trackedEntityId) errors.push(`history ${h.entityId} must use a past entity, not the current one`);
     if (!h.summary || !h.resolution) errors.push(`history ${h.entityId} needs summary and resolution`);
   }
+  const portfolioIds = new Set([p.entity?.trackedEntityId]);
+  for (const item of p.portfolio || []) {
+    if (!item.trackedEntityId || portfolioIds.has(item.trackedEntityId)) errors.push('portfolio trackedEntityId must be unique');
+    portfolioIds.add(item.trackedEntityId);
+    if (!item.destination?.id || !item.destination?.name) errors.push(`portfolio ${item.trackedEntityId} needs a destination`);
+    if (!['in_transit', 'at_risk', 'delayed'].includes(item.state)) errors.push(`portfolio ${item.trackedEntityId} has an unknown state`);
+    if (!item.lastSignal?.source || typeof item.lastSignal.offsetMin !== 'number' || !item.lastSignal.description) errors.push(`portfolio ${item.trackedEntityId} needs a complete lastSignal`);
+    if (!['none', 'watch', 'high', 'critical'].includes(item.impact?.level)) errors.push(`portfolio ${item.trackedEntityId} has an unknown impact level`);
+    if (item.exception && !categories.includes(item.exception.category)) errors.push(`portfolio ${item.trackedEntityId} uses unknown exception category`);
+  }
   const lines = p.entity?.orderLines ?? [];
   if (lines.length < 2) errors.push('entity.orderLines needs at least two lines');
   if (lines[0] && lines[0].destination?.id !== p.entity?.destination?.id) errors.push('the first order line must go to entity.destination');
