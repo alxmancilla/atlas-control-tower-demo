@@ -75,7 +75,7 @@ async def add_reading(db, profile: Profile, kind: str, *, now: datetime | None =
     value = telemetry.excursion_value if kind == "excursion" else telemetry.baseline + random.uniform(-0.5, 0.5) * ((telemetry.maximum - telemetry.minimum) / 4)
     document = reading(profile, now or datetime.now(timezone.utc), value)
     await db[COLLECTIONS["telemetry"]].insert_one(document)
-    return document
+    return {key: value for key, value in document.items() if key != "_id"}
 
 
 def _configured(profile: Profile):

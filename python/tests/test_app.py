@@ -1,6 +1,10 @@
+import asyncio
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.db import connection_status, get_db
 from app.main import create_app
 
 
@@ -38,3 +42,22 @@ def test_status_is_safe_without_a_connection_string():
         status = test_client.get("/api/status").json()
         assert status["connected"] is False
         assert status["target"] == "unparseable connection string"
+
+
+def test_connection_helpers_do_not_truth_test_an_async_database():
+    class Database:
+        def __bool__(self):
+            raise AssertionError("AsyncDatabase does not support truth-value testing")
+
+        async def command(self, command):
+            assert command == "ping"
+            return {"ok": 1}
+
+    database = Database()
+    app = SimpleNamespace(state=SimpleNamespace(
+        settings=Settings(mongodb_uri="mongodb+srv://example.mongodb.net", db_name="atlas_control_tower_demo"),
+        db=database,
+        change_feed=None,
+    ))
+    assert get_db(app) is database
+    assert asyncio.run(connection_status(app))["connected"] is True

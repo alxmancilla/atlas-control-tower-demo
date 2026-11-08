@@ -45,25 +45,27 @@ async def mongo_lifespan(app):
 
 
 def get_db(app) -> AsyncDatabase:
-    if not app.state.db:
+    if app.state.db is None:
         raise HTTPException(status_code=503, detail="MongoDB is not configured. Set MONGODB_URI to an Atlas cluster.")
     return app.state.db
 
 
 async def connection_status(app) -> dict[str, object]:
     settings: Settings = app.state.settings
+    db = app.state.db
+    feed = app.state.change_feed
     base = {
         "implementation": "python-fastapi",
         "database": settings.db_name,
         "target": settings.target,
         "defaultProfile": settings.default_profile,
         "adminTokenRequired": bool(settings.admin_token),
-        "changeStream": app.state.change_feed.state if app.state.change_feed else {"state": "unavailable", "error": "MongoDB is not configured"},
+        "changeStream": feed.state if feed is not None else {"state": "unavailable", "error": "MongoDB is not configured"},
     }
-    if not app.state.db:
+    if db is None:
         return {**base, "connected": False, "error": "MONGODB_URI is not configured"}
     try:
-        await app.state.db.command("ping")
+        await db.command("ping")
         return {**base, "connected": True}
     except Exception as error:
         return {**base, "connected": False, "error": redact(error)}

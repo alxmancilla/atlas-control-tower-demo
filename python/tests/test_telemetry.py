@@ -81,3 +81,15 @@ def test_add_reading_inserts_profile_scoped_normal_and_excursion_values(monkeypa
     assert excursion["value"] == 6.8
     with pytest.raises(BadRequest, match="kind"):
         asyncio.run(add_reading(db, get_profile("retail"), "invalid", now=now))
+
+
+def test_add_reading_excludes_pymongo_generated_object_id_from_the_api_payload():
+    class InsertingIdCollection(Collection):
+        async def insert_one(self, document):
+            document["_id"] = object()
+            self.inserted = document
+
+    collection = InsertingIdCollection()
+    result = asyncio.run(add_reading(Database(collection), get_profile("retail"), "normal", now=datetime(2026, 1, 1, 12, tzinfo=timezone.utc)))
+    assert "_id" in collection.inserted
+    assert "_id" not in result
