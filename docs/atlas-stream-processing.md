@@ -65,13 +65,98 @@ non-secret `KAFKA_TELEMETRY_TOPIC` to use another safe topic name locally.
 > endpoint and supports `SSL`, `SASL_SSL`, or `SASL_PLAINTEXT` for Kafka. Do not
 > expose this development broker to the internet.
 
+## Opt-in public-IP Kafka broker
+
+`docker-compose.kafka.public.yml` is a separate, single-node **demo-only** profile
+for an existing Stream Processing workspace that uses Public IP networking. It does
+not alter the loopback stack. It exposes only TCP `9094`, uses `SASL_SSL` with a
+default-deny Kafka ACL policy, and keeps its administrative listener inside the Docker
+network. It is less safe and less resilient than the MSK PrivateLink option.
+
+Before starting it, complete all of the following:
+
+1. Reserve a stable, routable public IPv4 address. A changing ISP address invalidates
+   the broker certificate and Atlas connection.
+2. Forward only TCP `9094` from the router/public firewall to this machine. Do not
+   expose `9092` or the Docker API.
+3. Obtain the Atlas control-plane outbound IPs for the Stream Processing workspace's
+   provider and region, then allow **only those addresses** through the host/router
+   firewall on `9094`. The Atlas security documentation provides the
+   `controlPlaneIPAddresses` endpoint for this list. Do not allow `0.0.0.0/0`.
+4. Choose three independent strong passwords for the local `admin`, `producer`, and
+   `asp` principals. Keep them in a password manager; never place them in `.env`, Git,
+   a terminal history, or an Atlas processor definition.
+
+Prepare the certificate and local-only credential files from a shell that has the
+public IP available. The preparation script prompts silently for the three passwords
+and requires `openssl` plus Java's `keytool`; CI may instead supply them through
+protected environment variables. The script refuses to replace existing material and
+writes it below the ignored `.local/kafka-public/` directory with restrictive
+permissions.
+
+```bash
+export KAFKA_PUBLIC_IP=<stable-public-ipv4>
+npm run kafka:public:prepare
+```
+
+Add only the non-secret `KAFKA_PUBLIC_IP` value to `.env`, then start and populate the
+broker. The public profile creates the telemetry topic and grants the `producer`
+principal write access and the `asp` principal read access limited to the processor's
+dedicated consumer group.
+
+```bash
+npm run kafka:public:up
+npm run kafka:public:publish
+npm run kafka:public:verify
+npm run kafka:public:certificate
+```
+
+In Atlas Stream Processing Connection Registry, create a **Kafka** connection with:
+
+| Field | Value |
+| --- | --- |
+| Network access | `Public IP` |
+| Bootstrap server | `<stable-public-ipv4>:9094` |
+| Security protocol | `SASL_SSL` |
+| SASL mechanism | `PLAIN` |
+| Username | `asp` |
+| Password | the private `KAFKA_PUBLIC_ASP_PASSWORD` value |
+| Trusted broker certificate | the PEM file path printed by `kafka:public:certificate` |
+| Connection name | `controlTowerKafkaPublic` or another safe label |
+
+The preparation script creates a non-CA, TLS server-authentication certificate with the
+configured public IP as its IP Subject Alternative Name and keeps hostname verification
+enabled. It expires after 30 days; rotate it before expiry by stopping the profile,
+removing the local secret directory through your operating system, preparing fresh
+material, updating the Atlas trusted certificate, and starting the profile again. If
+the public IP changes, perform the same rotation before ASP can reconnect.
+
+Do not use the local `verify` command as evidence that the router is reachable from
+the internet: it deliberately uses the non-public admin listener. After the firewall
+allows Atlas control-plane addresses, the secure end-to-end check is successful Atlas
+connection validation and processor output in `telemetry_rollups`. If you temporarily
+allow a separate external test host, remove that firewall exception immediately after
+testing.
+
+Stop the profile before removing its network forwarding and credentials:
+
+```bash
+npm run kafka:public:down
+```
+
 ## Atlas prerequisites and provisioning inputs
 
 No credential belongs in this repository. An Atlas administrator must create a Stream
-Processing workspace in a region close to the Atlas cluster, then create these
-Connection Registry entries before deploying the processor:
+Processing workspace on AWS in the same region as MSK. The repository includes an
+optional Terraform root at [`../infra/msk-atlas-streams/`](../infra/msk-atlas-streams/)
+that creates a private MSK broker, its Atlas Streams PrivateLink endpoint, and both
+Connection Registry entries. It requires explicit apply/destroy operations, a
+non-production VPC, and encrypted access-controlled Terraform state.
 
-- `ASP_KAFKA_CONNECTION`: Kafka connection-registry label for an externally reachable
+Whether provisioned manually or by that Terraform root, deploy the processor only
+after these Connection Registry entries exist:
+
+- `ASP_KAFKA_CONNECTION`: Kafka connection-registry label for an ASP-reachable
   TLS/SASL Kafka endpoint. Its advertised broker hostname and TLS certificate must
   match; `localhost` and the local Compose broker are invalid here.
 - `ASP_TELEMETRY_TOPIC`: Kafka topic name.
@@ -79,16 +164,16 @@ Connection Registry entries before deploying the processor:
 - `DEMO_DB_NAME`: existing guarded demo database; defaults to
   `atlas_control_tower_demo`.
 
-For a real end-to-end demo, run the same Apache Kafka image on a cloud VM or container
-platform with a stable public or privately networked DNS endpoint, TLS, and a supported
-Kafka authentication mechanism. Alternatively, use an approved networking solution
-that provides those properties. A transient localhost tunnel is not sufficient because
-Kafka clients follow the broker's advertised listener metadata.
+For a real end-to-end demo, use the Terraform MSK path, the constrained public-IP
+profile above, or another approved Kafka deployment with TLS and supported Kafka
+authentication. A transient localhost tunnel is not sufficient because Kafka clients
+follow the broker's advertised listener metadata.
 
-In the Atlas UI, create a Kafka connection with the secured broker bootstrap server and
-its matching security settings, then create an Atlas Cluster connection targeting the
-demo cluster. Keep passwords, SASL credentials, client keys, and CA material in Atlas
-Connection Registry fields only; do not put them in `.env` or this repository.
+For manual provisioning, create a Kafka connection with the secured broker bootstrap
+server and its matching security settings, then create an Atlas Cluster connection
+targeting the demo cluster. The Terraform root creates these entries instead. Keep
+passwords, SASL credentials, client keys, and CA material in Atlas Connection Registry
+fields only; do not put them in `.env` or this repository.
 
 Use `npm run stream:processor:check` to validate only the non-secret labels. Render
 the pipeline and copy it into the Stream Processing UI/API, configure a DLQ, start the
@@ -115,6 +200,8 @@ output. If the flag is false, no rollup collection query is issued.
 7. Monitor processor state, source lag, sink errors, and DLQ in Atlas. Stop the
    processor before changing its source or sink contract.
 
-The repository cannot provision the instance, Connection Registry entries, Kafka
-credentials, secure public endpoint, or processor because those are cloud-side
-administrative operations.
+The Terraform root intentionally does not create the Stream Processing workspace,
+Kafka topic/ACLs, or processor. Those require the workspace's region/principal values
+and a Kafka control-plane administrator. It does create the demo MSK cluster, SCRAM
+credential, PrivateLink endpoint, and Connection Registry entries when explicitly
+applied.

@@ -53,7 +53,7 @@ class Settings:
     mongodb_uri: str | None
     db_name: str = "atlas_control_tower_demo"
     default_profile: str = "retail"
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 8000
     admin_token: str | None = None
     stream_processing_enabled: bool = False
@@ -77,7 +77,7 @@ class Settings:
             mongodb_uri=uri,
             db_name=assert_demo_db_name(env.get("DEMO_DB_NAME", "atlas_control_tower_demo")),
             default_profile=profile,
-            host=env.get("HOST", "127.0.0.1"),
+            host=env.get("HOST", "0.0.0.0"),
             # Keep the parallel FastAPI service off the Node reference app's PORT=3000.
             port=int(env.get("PYTHON_PORT", "8000")),
             admin_token=env.get("ADMIN_TOKEN") or None,

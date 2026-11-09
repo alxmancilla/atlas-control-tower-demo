@@ -16,6 +16,7 @@ Three synthetic domain profiles share the same workflow: **retail** (store reple
 - Docker Desktop (or Docker Engine with Compose) for the optional local Kafka contract stack.
 - A **non-production** Atlas cluster. M10+ is recommended. Free and Flex tiers have limits on Search index count and some commands, and the results below were not verified on them.
 - Optional **Atlas Stream Processing** telemetry rollups: an Atlas Stream Processing instance, a Kafka topic, and separate Connection Registry entries for the Kafka source and Atlas sink. See [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
+- Optional managed Kafka path: [`infra/msk-atlas-streams/`](infra/msk-atlas-streams/) creates a demo-scoped AWS MSK, PrivateLink, and Connection Registry integration through an explicit Terraform apply/destroy workflow. It incurs AWS/Atlas charges and must use secure remote Terraform state.
 - A database user with `readWrite` and `dbAdmin` on the demo database. `collMod` needs `dbAdmin`.
 - Your IP address in Atlas **Network Access**.
 - For the 4th validation stage (`validationLevel: "constraint"`): a cluster on **MongoDB 9.0 or later**. On earlier versions, the stage is disabled in the UI and the reason is shown.
@@ -53,6 +54,18 @@ Kafka connection needs a separately deployed, externally reachable TLS/SASL brok
 See the complete setup and security boundary in
 [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
 
+For a short-lived public-IP demo, the repository also has a separately started
+`SASL_SSL` profile on TCP `9094`. It requires a stable public IP, an IP-SAN broker
+certificate, router/firewall allowlisting of Atlas control-plane IPs, and passwords
+outside Git. Follow the **Opt-in public-IP Kafka broker** runbook in
+[`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md); do not expose
+the default local broker.
+
+For a private AWS MSK source instead of a separately managed broker, use the reviewed
+plan-first template in [`infra/msk-atlas-streams/`](infra/msk-atlas-streams/). It
+creates the Kafka and Atlas sink connection labels used below but deliberately does
+not create the ASP processor or Kafka ACLs.
+
 After an administrator creates the Stream Processing instance and connection-registry
 entries, set only the non-secret labels in `.env`, render the reviewed pipeline, and
 deploy it through the Atlas Stream Processing UI/API:
@@ -70,7 +83,7 @@ late-event policy, and runbook are in [`docs/atlas-stream-processing.md`](docs/a
 
 ### Default implementation: Python / FastAPI
 
-The default `npm start` command launches the FastAPI implementation in [`python/`](python/) on `127.0.0.1:8000`. It uses PyMongo Async against the **same non-production Atlas demo database** and provides safe read APIs for status, readiness diagnostics, profiles, overview (including reliability), portfolio, timeline, materialized KPIs (use `fresh=true` to force refresh), telemetry, Search/Vector Search readiness and querying, and the exception queue, plus transactional event ingestion, fixed-catalog sample events, staged schema-validation demonstration controls, auditable operator-exception/recommendation decisions, Change Stream updates over SSE, a maintenance-locked synthetic timestamp reanchor endpoint, and a Python-native browser dashboard.
+The default `npm start` command launches the FastAPI implementation in [`python/`](python/) on `0.0.0.0:8000` (use `http://localhost:8000` locally or this machine's LAN address from another device). Because this exposes operational write APIs to the network, `ADMIN_TOKEN` is required. It uses PyMongo Async against the **same non-production Atlas demo database** and provides safe read APIs for status, readiness diagnostics, profiles, overview (including reliability), portfolio, timeline, materialized KPIs (use `fresh=true` to force refresh), telemetry, Search/Vector Search readiness and querying, and the exception queue, plus transactional event ingestion, fixed-catalog sample events, staged schema-validation demonstration controls, auditable operator-exception/recommendation decisions, Change Stream updates over SSE, a maintenance-locked synthetic timestamp reanchor endpoint, and a Python-native browser dashboard.
 
 The tagged Node application remains available as the setup/reset and original-UI reference. Start it explicitly with `npm run start:node` at `http://localhost:3000`. The Python implementation intentionally does not implement setup/reset, so keep using the Node CLI commands above to provision or administer demo data. Set `PYTHON_PORT` to override FastAPI's default port. Its CSS is independently served from `python/app/static/dashboard.css`. See [`python/README.md`](python/README.md) for its endpoint contract, intentional implementation boundary, tests, and the opt-in isolated Atlas operator verifier.
 
@@ -172,7 +185,7 @@ Integration tests **skip with an explicit message** when `MONGODB_URI` is not se
 | Similar resolved cases says "building" or "missing" | Wait for `ops_exceptions_similar` to report queryable (about a minute for the demo data), or run `npm run search:create` |
 | Similar resolved cases says "unavailable" or fails | Check storage auto-scaling (M10+), your organization's Automated Embedding policy, and token usage in Atlas → Search & Vector Search → Automated Embedding |
 | "Maintenance in progress" banner that doesn't clear | Another setup, reset, or re-anchor is running; a lock from a crashed process expires after 10 minutes |
-| Page unreachable from another machine | By design: set `HOST=0.0.0.0` and `ADMIN_TOKEN` to expose it |
+| `npm start` refuses to start | Set a strong `ADMIN_TOKEN`; the default FastAPI bind is `0.0.0.0:8000` |
 | 415 or 403 from scripts calling the API | Send `Content-Type: application/json`, and no foreign `Origin` header |
 | Search UNAVAILABLE | The cluster tier or user cannot manage Search indexes; create them in the Atlas UI |
 | Constraint button disabled | The server is earlier than 9.0; the UI shows the reported version |
@@ -186,7 +199,7 @@ Connection strings are never logged. Errors show only the host name (see `redact
 
 The demo can drop and reseed its database, so the server protects its write API (`src/requestGuard.js`):
 
-- **Local only by default.** It listens on `127.0.0.1`. Setting `HOST` to anything else, such as `0.0.0.0`, refuses to start unless `ADMIN_TOKEN` is also set.
+- **Protected network binding.** FastAPI defaults to `0.0.0.0:8000`; it refuses to start unless `ADMIN_TOKEN` is set. Override `HOST=127.0.0.1` for loopback-only access.
 - **No cross-site writes.** POST requests must be `Content-Type: application/json`, and any `Origin` header must match the page. This stops another website you visit from calling the API in the background. Requests with an unexpected `Host` header are rejected, which blocks DNS-rebinding pages.
 - **Optional admin token.** With `ADMIN_TOKEN` set, every change needs it in `X-Admin-Token`. The page asks for it once per browser tab.
 - **Browser hardening.** Pages are served with a strict Content-Security-Policy, and every dynamic value is HTML-escaped before rendering.

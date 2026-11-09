@@ -20,6 +20,13 @@
     "kafka:logs": "node --env-file-if-exists=.env src/kafkaLocalCli.js logs",
     "kafka:publish": "node --env-file-if-exists=.env src/kafkaLocalCli.js publish",
     "kafka:verify": "node --env-file-if-exists=.env src/kafkaLocalCli.js verify",
+    "kafka:public:prepare": "bash scripts/kafka-public-prepare.sh",
+    "kafka:public:up": "node --env-file-if-exists=.env src/kafkaPublicCli.js up",
+    "kafka:public:down": "node --env-file-if-exists=.env src/kafkaPublicCli.js down",
+    "kafka:public:logs": "node --env-file-if-exists=.env src/kafkaPublicCli.js logs",
+    "kafka:public:publish": "node --env-file-if-exists=.env src/kafkaPublicCli.js publish",
+    "kafka:public:verify": "node --env-file-if-exists=.env src/kafkaPublicCli.js verify",
+    "kafka:public:certificate": "node --env-file-if-exists=.env src/kafkaPublicCli.js certificate",
     "test": "node --test \"test/unit/*.test.js\"",
     "test:integration": "node --env-file-if-exists=.env --test --test-concurrency=1 \"test/integration/*.test.js\""
   },

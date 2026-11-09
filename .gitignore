@@ -5,3 +5,14 @@ __pycache__/
 .env.*
 !.env.example
 .DS_Store
+.local/kafka-public/
+
+# Terraform working files, state, crash artifacts, and real variable files may hold
+# cloud resource metadata and sensitive Stream Processing/Kafka credentials.
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example

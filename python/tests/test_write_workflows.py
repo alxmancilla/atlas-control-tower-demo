@@ -88,7 +88,7 @@ def test_transaction_uses_pymongo_async_session_context_manager():
 
 
 def test_write_guard_requires_json_local_host_and_configured_database():
-    app = create_app(Settings(mongodb_uri=None, db_name="atlas_control_tower_demo"))
+    app = create_app(Settings(mongodb_uri=None, db_name="atlas_control_tower_demo", host="127.0.0.1"))
     with TestClient(app, base_url="http://localhost:8000") as client:
         assert client.post("/api/events", data="not-json").status_code == 415
         assert client.post("/api/events", json=payload()).status_code == 503
