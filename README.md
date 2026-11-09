@@ -26,11 +26,15 @@ Three synthetic domain profiles share the same workflow: **retail** (store reple
 
 ```bash
 npm install
-cp .env.example .env          # set MONGODB_URI (Atlas only; *.mongodb.net is required)
+cp .env.example .env          # set MONGODB_URI and a strong ADMIN_TOKEN
 npm run setup                 # collections, indexes, time-series collection, seed data, Search and Vector Search indexes
 npm run search:status         # wait until the three indexes report queryable: true
 npm start                     # default FastAPI dashboard: http://localhost:8000
 ```
+
+`MONGODB_URI` must point to Atlas (`*.mongodb.net`). `ADMIN_TOKEN` is required by
+default because FastAPI listens on `0.0.0.0:8000`; it protects every write action.
+For local-only use, set `HOST=127.0.0.1` instead.
 
 ### Optional: Atlas Stream Processing telemetry rollups
 
@@ -83,9 +87,17 @@ late-event policy, and runbook are in [`docs/atlas-stream-processing.md`](docs/a
 
 ### Default implementation: Python / FastAPI
 
-The default `npm start` command launches the FastAPI implementation in [`python/`](python/) on `0.0.0.0:8000` (use `http://localhost:8000` locally or this machine's LAN address from another device). Because this exposes operational write APIs to the network, `ADMIN_TOKEN` is required. It uses PyMongo Async against the **same non-production Atlas demo database** and provides safe read APIs for status, readiness diagnostics, profiles, overview (including reliability), portfolio, timeline, materialized KPIs (use `fresh=true` to force refresh), telemetry, Search/Vector Search readiness and querying, and the exception queue, plus transactional event ingestion, fixed-catalog sample events, staged schema-validation demonstration controls, auditable operator-exception/recommendation decisions, Change Stream updates over SSE, a maintenance-locked synthetic timestamp reanchor endpoint, and a Python-native browser dashboard.
+`npm start` launches the FastAPI dashboard from [`python/`](python/) on
+`0.0.0.0:8000`. Open `http://localhost:8000` locally, or use this machine's LAN
+address from another device. It uses the same non-production Atlas demo database
+and supports the dashboard's operational read/write, Search, telemetry, Change
+Stream, validation, and reanchor workflows.
 
-The tagged Node application remains available as the setup/reset and original-UI reference. Start it explicitly with `npm run start:node` at `http://localhost:3000`. The Python implementation intentionally does not implement setup/reset, so keep using the Node CLI commands above to provision or administer demo data. Set `PYTHON_PORT` to override FastAPI's default port. Its CSS is independently served from `python/app/static/dashboard.css`. See [`python/README.md`](python/README.md) for its endpoint contract, intentional implementation boundary, tests, and the opt-in isolated Atlas operator verifier.
+The tagged Node application remains the setup/reset and original-UI reference. Run
+it explicitly with `npm run start:node` at `http://localhost:3000`; continue using
+the Node CLI commands above to provision or administer demo data. `PORT` controls
+that Node server, while `PYTHON_PORT` controls FastAPI (default `8000`). See
+[`python/README.md`](python/README.md) for FastAPI's endpoint contract and tests.
 
 `DEMO_DB_NAME` must contain `demo`. Setup, seed, and reset only touch that database. Setup is idempotent: it creates what is missing and never drops anything. The UI also offers **Initialize demo data** when the database is missing collections, indexes, or a profile's seed data.
 

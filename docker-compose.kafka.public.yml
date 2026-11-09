@@ -25,7 +25,7 @@ services:
       KAFKA_AUTHORIZER_CLASS_NAME: "org.apache.kafka.metadata.authorizer.StandardAuthorizer"
       # The combined KRaft controller uses the unexposed PLAINTEXT controller
       # listener and therefore registers as ANONYMOUS. Public clients remain
-      # SASL-authenticated on the PUBLIC listener.
+      # SASL-authenticated on the SASL_SSL listener.
       KAFKA_SUPER_USERS: "User:admin;User:ANONYMOUS"
       KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
