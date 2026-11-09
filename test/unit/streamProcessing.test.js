@@ -10,6 +10,8 @@ test('telemetry rollup processor uses an event-time window and deterministic Atl
   const window = processor.pipeline[3].$tumblingWindow;
   assert.deepEqual(window.interval, { size: 1, unit: 'minute' });
   assert.deepEqual(window.allowedLateness, { size: 5, unit: 'minute' });
+  assert.deepEqual(window.pipeline.at(-1).$set.processedAt, { $currentDate: {} });
+  assert.doesNotMatch(JSON.stringify(processor), /\$\$NOW/);
   const merge = processor.pipeline.at(-1).$merge;
   assert.deepEqual(merge.on, ['profile', 'sensorId', 'metric', 'windowStart']);
   assert.equal(merge.into.coll, STREAM_PROCESSING.rollupsCollection);

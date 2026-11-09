@@ -15,6 +15,11 @@
     "reanchor": "node --env-file-if-exists=.env src/cli.js reanchor",
     "stream:processor": "node --env-file-if-exists=.env src/streamProcessorCli.js",
     "stream:processor:check": "node --env-file-if-exists=.env src/streamProcessorCli.js > /dev/null",
+    "kafka:up": "node --env-file-if-exists=.env src/kafkaLocalCli.js up",
+    "kafka:down": "node --env-file-if-exists=.env src/kafkaLocalCli.js down",
+    "kafka:logs": "node --env-file-if-exists=.env src/kafkaLocalCli.js logs",
+    "kafka:publish": "node --env-file-if-exists=.env src/kafkaLocalCli.js publish",
+    "kafka:verify": "node --env-file-if-exists=.env src/kafkaLocalCli.js verify",
     "test": "node --test \"test/unit/*.test.js\"",
     "test:integration": "node --env-file-if-exists=.env --test --test-concurrency=1 \"test/integration/*.test.js\""
   },

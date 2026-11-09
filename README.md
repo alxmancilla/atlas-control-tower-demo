@@ -13,6 +13,7 @@ Three synthetic domain profiles share the same workflow: **retail** (store reple
 
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/) for the default FastAPI demo.
 - Node.js 22 or later for demo setup/reset, Search administration, and the retained Node reference implementation.
+- Docker Desktop (or Docker Engine with Compose) for the optional local Kafka contract stack.
 - A **non-production** Atlas cluster. M10+ is recommended. Free and Flex tiers have limits on Search index count and some commands, and the results below were not verified on them.
 - Optional **Atlas Stream Processing** telemetry rollups: an Atlas Stream Processing instance, a Kafka topic, and separate Connection Registry entries for the Kafka source and Atlas sink. See [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
 - A database user with `readWrite` and `dbAdmin` on the demo database. `collMod` needs `dbAdmin`.
@@ -36,6 +37,21 @@ The demo's event-to-exception transaction remains application-owned. Atlas Strea
 Processing is an opt-in continuous telemetry aggregation: Kafka telemetry input is
 windowed by event time and merged into `telemetry_rollups`. It never reads the
 `telemetry_readings` time-series collection.
+
+Start the local Apache Kafka contract stack and inspect the six deterministic sample
+readings before configuring Atlas Stream Processing:
+
+```bash
+npm run kafka:up
+npm run kafka:publish
+npm run kafka:verify
+```
+
+It is loopback-only and uses `PLAINTEXT`, so it is safe for local development but is
+**not reachable or supported as an Atlas Stream Processing source**. The real ASP
+Kafka connection needs a separately deployed, externally reachable TLS/SASL broker.
+See the complete setup and security boundary in
+[`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
 
 After an administrator creates the Stream Processing instance and connection-registry
 entries, set only the non-secret labels in `.env`, render the reviewed pipeline, and

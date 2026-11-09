@@ -32,7 +32,7 @@ export function telemetryRollupProcessor({ database, kafkaConnection, topic, atl
         pipeline: [
           { $group: { _id: { profile: '$profile', trackedEntityId: '$trackedEntityId', sensorId: '$sensorId', metric: '$metric', windowStart: { $meta: 'stream.window.start' } }, unit: { $first: '$unit' }, count: { $sum: 1 }, average: { $avg: '$value' }, minimum: { $min: '$value' }, maximum: { $max: '$value' }, outOfRangeCount: { $sum: { $cond: [{ $or: [{ $lt: ['$value', '$range.min'] }, { $gt: ['$value', '$range.max'] }] }, 1, 0] } } } },
           { $project: { _id: 0, profile: '$_id.profile', trackedEntityId: '$_id.trackedEntityId', sensorId: '$_id.sensorId', metric: '$_id.metric', windowStart: '$_id.windowStart', unit: 1, count: 1, average: { $round: ['$average', 2] }, minimum: 1, maximum: 1, outOfRangeCount: 1 } },
-          { $set: { windowEnd: { $dateAdd: { startDate: '$windowStart', unit: 'minute', amount: 1 } }, status: { $cond: [{ $gt: ['$outOfRangeCount', 0] }, 'excursion', 'normal'] }, processedAt: '$$NOW' } },
+          { $set: { windowEnd: { $dateAdd: { startDate: '$windowStart', unit: 'minute', amount: 1 } }, status: { $cond: [{ $gt: ['$outOfRangeCount', 0] }, 'excursion', 'normal'] }, processedAt: { $currentDate: {} } } },
         ],
       } },
       { $merge: { into: { connectionName: sink, db, coll: STREAM_PROCESSING.rollupsCollection }, on: ['profile', 'sensorId', 'metric', 'windowStart'], whenMatched: 'replace', whenNotMatched: 'insert' } },
