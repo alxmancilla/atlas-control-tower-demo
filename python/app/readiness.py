@@ -12,6 +12,7 @@ INDEXES = {
     "exceptions": {"exceptionId_unique", "exceptionKey_unique", "profile_status_sla", "entity_status"},
     "positions": {"location_item_unique"},
     "telemetry": {"meta_entity_metric_ts"},
+    "telemetry_rollups": {"profile_sensor_metric_window_unique"},
 }
 
 

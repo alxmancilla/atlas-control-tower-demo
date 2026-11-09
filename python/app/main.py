@@ -138,7 +138,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/telemetry")
     async def telemetry(request: Request, profile: str | None = None, hours: float = 8, min: float | None = None, max: float | None = None):
-        return await telemetry_view(await view_ready(request), profile_from_query(profile), hours=hours, minimum=min, maximum=max)
+        return await telemetry_view(await view_ready(request), profile_from_query(profile), hours=hours, minimum=min, maximum=max, stream_processing_enabled=request.app.state.settings.stream_processing_enabled)
 
     @app.get("/api/search")
     async def search(request: Request, q: str | None = None, profile: str | None = None, kind: str = "all", source: str | None = None, event_type: str | None = None, status: str | None = None, limit: int = 10):

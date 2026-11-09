@@ -15,6 +15,7 @@ COLLECTIONS = {
     "events": "operational_events",
     "exceptions": "exceptions",
     "telemetry": "telemetry_readings",
+    "telemetry_rollups": "telemetry_rollups",
     "positions": "inventory_positions",
     "kpis": "kpi_snapshots",
     "state": "demo_state",
@@ -31,7 +32,9 @@ async def mongo_lifespan(app):
         app.state.mongo_client = AsyncMongoClient(
             settings.mongodb_uri,
             appname="atlas-control-tower-fastapi",
-            serverSelectionTimeoutMS=15_000,
+            # Keep the operator dashboard responsive when Atlas is resuming or
+            # temporarily unavailable. Individual views can recover on refresh.
+            serverSelectionTimeoutMS=5_000,
         )
         app.state.db = app.state.mongo_client[settings.db_name]
         app.state.change_feed = ChangeFeed(app.state.db).start()

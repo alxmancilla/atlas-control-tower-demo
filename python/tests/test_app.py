@@ -38,6 +38,10 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     assert 'href="/static/dashboard.css"' in page
     assert stylesheet.headers["content-type"].startswith("text/css")
     assert "const esc=" in page
+    assert "AbortController" in page
+    assert "Promise.allSettled" in page
+    assert "Some dashboard sections are unavailable" in page
+    assert "Atlas Stream Processing rollups" in page
 
 
 def test_status_is_safe_without_a_connection_string():

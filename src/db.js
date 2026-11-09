@@ -7,6 +7,7 @@ export const COLL = {
   events: 'operational_events',
   exceptions: 'exceptions',
   telemetry: 'telemetry_readings',
+  telemetryRollups: 'telemetry_rollups',
   positions: 'inventory_positions',
   kpis: 'kpi_snapshots',
   state: 'demo_state',
@@ -37,6 +38,8 @@ export const INDEXES = [
     reason: 'One stock position per location and item; join target for the business-impact $lookup.' },
   { coll: COLL.telemetry, key: { 'meta.trackedEntityId': 1, 'meta.metric': 1, ts: 1 }, options: { name: 'meta_entity_metric_ts' },
     reason: 'Recent readings for one entity and metric (secondary index on the time-series metaField).' },
+  { coll: COLL.telemetryRollups, key: { profile: 1, sensorId: 1, metric: 1, windowStart: 1 }, options: { unique: true, name: 'profile_sensor_metric_window_unique' },
+    reason: 'Atlas Stream Processing replaces each profile/sensor/metric event-time window deterministically.' },
 ];
 
 export async function connect(config) {
@@ -82,7 +85,7 @@ export async function collectionInfo(db) {
 export async function ensureSetup(db) {
   const existing = await collectionInfo(db);
   const created = [];
-  for (const name of [COLL.entities, COLL.events, COLL.exceptions, COLL.positions, COLL.kpis, COLL.state]) {
+  for (const name of [COLL.entities, COLL.events, COLL.exceptions, COLL.positions, COLL.kpis, COLL.telemetryRollups, COLL.state]) {
     if (!existing[name]) {
       await db.createCollection(name);
       created.push(name);

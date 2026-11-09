@@ -46,6 +46,15 @@ class Database:
         return self.collection
 
 
+class RollupDatabase:
+    def __init__(self, telemetry, rollups):
+        self.telemetry = telemetry
+        self.rollups = rollups
+
+    def __getitem__(self, name):
+        return self.telemetry if name == "telemetry_readings" else self.rollups
+
+
 def test_telemetry_view_uses_time_series_window_and_facets():
     now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
     collection = Collection([{"stats": [{"count": 2, "avg": 2.8, "outOfRange": 1}], "recent": [{"value": 6.8}], "excursions": [{"value": 6.8, "deviation": 2.8}]}])
@@ -66,6 +75,22 @@ def test_telemetry_view_handles_optional_capability_and_rejects_bad_ranges():
         asyncio.run(telemetry_view(Database(Collection()), profile, minimum=4, maximum=4))
     with pytest.raises(BadRequest, match="window"):
         asyncio.run(telemetry_view(Database(Collection()), profile, hours=169))
+
+
+def test_telemetry_view_exposes_opt_in_stream_processing_rollups():
+    now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    telemetry = Collection([{"stats": [{"count": 1}], "recent": [], "excursions": []}])
+    rollup = {"profile": "retail", "sensorId": "REEFER-TRL-8812", "metric": "temperature", "windowStart": now, "windowEnd": now + timedelta(minutes=1), "count": 3, "average": 2.8, "status": "normal"}
+    result = asyncio.run(telemetry_view(RollupDatabase(telemetry, Collection([rollup])), get_profile("retail"), now=now, stream_processing_enabled=True))
+    assert result["streamProcessing"] == {"configured": True, "available": True, "collection": "telemetry_rollups", "latest": rollup, "recent": [rollup]}
+    assert result["streamProcessing"]["latest"]["status"] == "normal"
+
+
+def test_telemetry_view_does_not_query_rollups_when_stream_processing_is_disabled():
+    telemetry = Collection([{"stats": [{"count": 1}], "recent": [], "excursions": []}])
+    result = asyncio.run(telemetry_view(Database(telemetry), get_profile("retail")))
+    assert result["streamProcessing"]["configured"] is False
+    assert telemetry.pipeline[-1]["$facet"]
 
 
 def test_add_reading_inserts_profile_scoped_normal_and_excursion_values(monkeypatch):

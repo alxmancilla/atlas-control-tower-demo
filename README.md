@@ -11,8 +11,10 @@ Three synthetic domain profiles share the same workflow: **retail** (store reple
 
 ## Prerequisites
 
-- Node.js 22 or later (uses `--env-file-if-exists` and `node:test`).
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/) for the default FastAPI demo.
+- Node.js 22 or later for demo setup/reset, Search administration, and the retained Node reference implementation.
 - A **non-production** Atlas cluster. M10+ is recommended. Free and Flex tiers have limits on Search index count and some commands, and the results below were not verified on them.
+- Optional **Atlas Stream Processing** telemetry rollups: an Atlas Stream Processing instance, a Kafka topic, and separate Connection Registry entries for the Kafka source and Atlas sink. See [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
 - A database user with `readWrite` and `dbAdmin` on the demo database. `collMod` needs `dbAdmin`.
 - Your IP address in Atlas **Network Access**.
 - For the 4th validation stage (`validationLevel: "constraint"`): a cluster on **MongoDB 9.0 or later**. On earlier versions, the stage is disabled in the UI and the reason is shown.
@@ -25,14 +27,36 @@ npm install
 cp .env.example .env          # set MONGODB_URI (Atlas only; *.mongodb.net is required)
 npm run setup                 # collections, indexes, time-series collection, seed data, Search and Vector Search indexes
 npm run search:status         # wait until the three indexes report queryable: true
-npm start                     # http://localhost:3000
+npm start                     # default FastAPI dashboard: http://localhost:8000
 ```
 
-### Python / FastAPI recreation
+### Optional: Atlas Stream Processing telemetry rollups
 
-The tagged Node application remains the `0.1` reference for setup/reset and its original browser UI. A parallel Python implementation lives in [`python/`](python/); it uses FastAPI and PyMongo Async against the **same non-production Atlas demo database** without changing the existing Node code or UI. It provides safe read APIs for status, readiness diagnostics, profiles, overview (including reliability), portfolio, timeline, materialized KPIs (use `fresh=true` to force refresh), telemetry, Search/Vector Search readiness and querying, and the exception queue, plus transactional event ingestion, fixed-catalog sample events, staged schema-validation demonstration controls, auditable operator-exception/recommendation decisions, Change Stream updates over SSE, a maintenance-locked synthetic timestamp reanchor endpoint, and a Python-native browser dashboard. It intentionally does not implement setup/reset.
+The demo's event-to-exception transaction remains application-owned. Atlas Stream
+Processing is an opt-in continuous telemetry aggregation: Kafka telemetry input is
+windowed by event time and merged into `telemetry_rollups`. It never reads the
+`telemetry_readings` time-series collection.
 
-It requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). From the `python/` directory, run `uv run --env-file ../.env python -m app.run`; it listens on `127.0.0.1:8000` by default (override with `PYTHON_PORT`). Its CSS is independently served from `python/app/static/dashboard.css`. See [`python/README.md`](python/README.md) for its endpoint contract, intentional implementation boundary, tests, and the opt-in isolated Atlas operator verifier.
+After an administrator creates the Stream Processing instance and connection-registry
+entries, set only the non-secret labels in `.env`, render the reviewed pipeline, and
+deploy it through the Atlas Stream Processing UI/API:
+
+```bash
+npm run setup
+npm run stream:processor:check
+npm run stream:processor > telemetry-rollups.processor.json
+```
+
+Set `ASP_TELEMETRY_ENABLED=true` only after the processor is running. FastAPI then
+shows recent rollups beside its direct time-series telemetry view; direct telemetry
+remains available while rollups are absent. The full source-message contract,
+late-event policy, and runbook are in [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
+
+### Default implementation: Python / FastAPI
+
+The default `npm start` command launches the FastAPI implementation in [`python/`](python/) on `127.0.0.1:8000`. It uses PyMongo Async against the **same non-production Atlas demo database** and provides safe read APIs for status, readiness diagnostics, profiles, overview (including reliability), portfolio, timeline, materialized KPIs (use `fresh=true` to force refresh), telemetry, Search/Vector Search readiness and querying, and the exception queue, plus transactional event ingestion, fixed-catalog sample events, staged schema-validation demonstration controls, auditable operator-exception/recommendation decisions, Change Stream updates over SSE, a maintenance-locked synthetic timestamp reanchor endpoint, and a Python-native browser dashboard.
+
+The tagged Node application remains available as the setup/reset and original-UI reference. Start it explicitly with `npm run start:node` at `http://localhost:3000`. The Python implementation intentionally does not implement setup/reset, so keep using the Node CLI commands above to provision or administer demo data. Set `PYTHON_PORT` to override FastAPI's default port. Its CSS is independently served from `python/app/static/dashboard.css`. See [`python/README.md`](python/README.md) for its endpoint contract, intentional implementation boundary, tests, and the opt-in isolated Atlas operator verifier.
 
 `DEMO_DB_NAME` must contain `demo`. Setup, seed, and reset only touch that database. Setup is idempotent: it creates what is missing and never drops anything. The UI also offers **Initialize demo data** when the database is missing collections, indexes, or a profile's seed data.
 
@@ -62,6 +86,7 @@ npm run reanchor
 | `inventory_positions` | Stock at a location for an item (on hand, consumption rate), one per `locationId` + `itemRef`; one per stop on the load, and the business-impact join target. Kept separate from the load because stock changes independently of it |
 | `kpi_snapshots` | Materialized view: one KPI document per profile, written by an aggregation with `$merge` |
 | `telemetry_readings` | **Time-series** collection (`timeField: ts`, `metaField: meta`) |
+| `telemetry_rollups` | Optional ASP-derived one-minute telemetry aggregates, keyed by profile/sensor/metric/window start |
 | `demo_state` | The persisted validation stage, its history, and the maintenance lock |
 
 **One collection, many source formats.** Each event records its `channel` (`edi`, `api`, `wms_scan`, `gps`, `iot`, `manual`, `batch_file`) and keeps the source's own payload in `details.raw`: an EDI 214 or 856 segment string, a WMS scan record, a GPS ping, an IoT logger reading, a webhook body, or a CSV row. The validator enforces the shared envelope and leaves `details` free, so a new source needs no schema migration. Expand **raw** on any timeline row to see it. Raw timestamps are written at ingest; re-anchoring shifts the envelope times but leaves raw payloads as received.
@@ -96,7 +121,7 @@ Index reasons appear in the UI (**Atlas capabilities → Indexes**) and in `src/
   3. **Enforce**: `validationAction: "error"`. New invalid writes are rejected with error code 121 and the server's `errInfo`. Existing invalid documents can remain.
   4. **Constraint** (9.0+): the demo runs `prepareConstraintValidationLevel: true`, then `validationLevel: "constraint"`. MongoDB scans the existing documents and fails if any violate the validator. In that case, the UI lists the violating documents so you can **Repair** or **Remove** them first. To leave constraint, the demo downgrades to `strict` before it changes the validator, as MongoDB requires.
 
-**Atlas Stream Processing is not used.** Each event here needs a stateful, per-entity decision (dedupe, ordering, exception linking), which this app makes against the operational collections directly. Stream Processing would fit continuous windowed telemetry from Kafka. Note that it cannot read from time-series collections.
+**Atlas Stream Processing is optional and telemetry-only.** Each operational event needs a stateful, per-entity decision (dedupe, ordering, exception linking), which this app makes transactionally against operational collections. The optional processor instead reads Kafka telemetry, applies one-minute event-time windows with a five-minute lateness allowance, and materializes `telemetry_rollups`. It does not read the `telemetry_readings` time-series collection. See [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
 
 ## Demo script (about 10 minutes, retail)
 

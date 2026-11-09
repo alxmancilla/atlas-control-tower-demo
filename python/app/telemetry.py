@@ -50,7 +50,27 @@ def telemetry_pipeline(profile: Profile, *, since: datetime, minimum: float, max
     ]
 
 
-async def telemetry_view(db, profile: Profile, *, hours: float = 8, minimum: float | None = None, maximum: float | None = None, now: datetime | None = None) -> dict:
+def rollup_pipeline(profile: Profile, *, since: datetime) -> list[dict]:
+    telemetry = _configured(profile)
+    return [
+        {"$match": {"profile": profile.id, "trackedEntityId": profile.entity_id, "sensorId": telemetry.sensor_id, "metric": telemetry.metric, "windowEnd": {"$gte": since}}},
+        {"$sort": {"windowStart": -1}},
+        {"$limit": 8},
+        {"$project": {"_id": 0, "profile": 1, "sensorId": 1, "metric": 1, "unit": 1, "windowStart": 1, "windowEnd": 1, "count": 1, "average": 1, "minimum": 1, "maximum": 1, "outOfRangeCount": 1, "status": 1, "processedAt": 1}},
+    ]
+
+
+async def stream_processing_status(db, profile: Profile, *, since: datetime, enabled: bool) -> dict:
+    if not enabled:
+        return {"configured": False, "available": False, "collection": COLLECTIONS["telemetry_rollups"], "note": "Atlas Stream Processing is not enabled; displaying direct time-series telemetry."}
+    cursor = await db[COLLECTIONS["telemetry_rollups"]].aggregate(rollup_pipeline(profile, since=since))
+    rollups = [row async for row in cursor]
+    if not rollups:
+        return {"configured": True, "available": False, "collection": COLLECTIONS["telemetry_rollups"], "note": "Waiting for Atlas Stream Processing rollups for this telemetry window.", "recent": []}
+    return {"configured": True, "available": True, "collection": COLLECTIONS["telemetry_rollups"], "latest": rollups[0], "recent": rollups}
+
+
+async def telemetry_view(db, profile: Profile, *, hours: float = 8, minimum: float | None = None, maximum: float | None = None, now: datetime | None = None, stream_processing_enabled: bool = False) -> dict:
     telemetry = profile.telemetry
     if not telemetry:
         return {"enabled": False, "note": "This profile does not use telemetry; the capability is optional here."}
@@ -65,7 +85,8 @@ async def telemetry_view(db, profile: Profile, *, hours: float = 8, minimum: flo
     cursor = await db[COLLECTIONS["telemetry"]].aggregate(telemetry_pipeline(profile, since=since, minimum=low, maximum=high))
     rows = [row async for row in cursor]
     result = rows[0] if rows else {}
-    return {"enabled": True, "metric": telemetry.metric, "label": telemetry.label, "unit": telemetry.unit, "sensorId": telemetry.sensor_id, "range": {"min": low, "max": high}, "configuredRange": {"min": telemetry.minimum, "max": telemetry.maximum}, "since": since, "stats": (result.get("stats") or [{"count": 0}])[0], "recent": result.get("recent", []), "excursions": result.get("excursions", []), "queriedAt": now}
+    stream_processing = await stream_processing_status(db, profile, since=since, enabled=stream_processing_enabled)
+    return {"enabled": True, "metric": telemetry.metric, "label": telemetry.label, "unit": telemetry.unit, "sensorId": telemetry.sensor_id, "range": {"min": low, "max": high}, "configuredRange": {"min": telemetry.minimum, "max": telemetry.maximum}, "since": since, "stats": (result.get("stats") or [{"count": 0}])[0], "recent": result.get("recent", []), "excursions": result.get("excursions", []), "streamProcessing": stream_processing, "queriedAt": now}
 
 
 async def add_reading(db, profile: Profile, kind: str, *, now: datetime | None = None) -> dict:
