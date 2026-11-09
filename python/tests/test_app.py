@@ -40,6 +40,8 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     assert "const esc=" in page
     assert "AbortController" in page
     assert "Promise.allSettled" in page
+    assert "X-Admin-Token" in page
+    assert "sessionStorage" in page
     assert "Some dashboard sections are unavailable" in page
     assert "Atlas Stream Processing rollups" in page
 
