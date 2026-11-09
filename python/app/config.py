@@ -11,6 +11,8 @@ class ConfigError(ValueError):
 
 PROFILE_IDS = ("retail", "healthcare", "manufacturing")
 _URI_PATTERN = re.compile(r"^mongodb(?P<srv>\+srv)?://(?:[^@/]+@)?(?P<hosts>[^/?]+)", re.IGNORECASE)
+_ALLOWED_HOST_PATTERN = re.compile(r"(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:.]+\])$", re.IGNORECASE)
+DEFAULT_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
 
 
 def redact(value: object) -> str:
@@ -48,6 +50,14 @@ def boolean_env(env: dict[str, str], name: str, *, default: bool = False) -> boo
     raise ConfigError(f'{name} must be true or false. Got "{value}".')
 
 
+def allowed_hosts_env(env: dict[str, str]) -> frozenset[str]:
+    values = {value.strip().lower() for value in env.get("ALLOWED_HOSTS", "").split(",") if value.strip()}
+    invalid = sorted(value for value in values if not _ALLOWED_HOST_PATTERN.fullmatch(value))
+    if invalid:
+        raise ConfigError("ALLOWED_HOSTS entries must be hostnames, IPv4 addresses, or bracketed IPv6 addresses without ports.")
+    return DEFAULT_ALLOWED_HOSTS | frozenset(values)
+
+
 @dataclass(frozen=True)
 class Settings:
     mongodb_uri: str | None
@@ -56,6 +66,7 @@ class Settings:
     host: str = "0.0.0.0"
     port: int = 8000
     admin_token: str | None = None
+    allowed_hosts: frozenset[str] = DEFAULT_ALLOWED_HOSTS
     stream_processing_enabled: bool = False
 
     @property
@@ -81,6 +92,7 @@ class Settings:
             # Keep the parallel FastAPI service off the Node reference app's PORT=3000.
             port=int(env.get("PYTHON_PORT", "8000")),
             admin_token=env.get("ADMIN_TOKEN") or None,
+            allowed_hosts=allowed_hosts_env(env),
             stream_processing_enabled=boolean_env(env, "ASP_TELEMETRY_ENABLED"),
         )
 

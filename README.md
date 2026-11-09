@@ -34,7 +34,8 @@ npm start                     # default FastAPI dashboard: http://localhost:8000
 
 `MONGODB_URI` must point to Atlas (`*.mongodb.net`). `ADMIN_TOKEN` is required by
 default because FastAPI listens on `0.0.0.0:8000`; it protects every write action.
-For local-only use, set `HOST=127.0.0.1` instead.
+For local-only use, set `HOST=127.0.0.1` instead. To use the dashboard from another
+device, add this machine's LAN hostname or IP address to `ALLOWED_HOSTS`.
 
 ### Optional: Atlas Stream Processing telemetry rollups
 
@@ -212,7 +213,8 @@ Connection strings are never logged. Errors show only the host name (see `redact
 The demo can drop and reseed its database, so the server protects its write API (`src/requestGuard.js`):
 
 - **Protected network binding.** FastAPI defaults to `0.0.0.0:8000`; it refuses to start unless `ADMIN_TOKEN` is set. Override `HOST=127.0.0.1` for loopback-only access.
-- **No cross-site writes.** POST requests must be `Content-Type: application/json`, and any `Origin` header must match the page. This stops another website you visit from calling the API in the background. Requests with an unexpected `Host` header are rejected, which blocks DNS-rebinding pages.
-- **Optional admin token.** With `ADMIN_TOKEN` set, every change needs it in `X-Admin-Token`. The page asks for it once per browser tab.
-- **Browser hardening.** Pages are served with a strict Content-Security-Policy, and every dynamic value is HTML-escaped before rendering.
+- **Explicit hosts.** Loopback hosts are allowed by default. Add a LAN hostname or IP to `ALLOWED_HOSTS` for remote dashboard access; unexpected `Host` headers are rejected to block DNS-rebinding pages.
+- **No cross-site writes.** POST requests must be `Content-Type: application/json`, and any `Origin` header must match the page. This stops another website you visit from calling the API in the background.
+- **Admin token.** With the default network binding, every change needs `ADMIN_TOKEN` in `X-Admin-Token`. The page asks for it once per browser tab.
+- **Browser hardening.** The dashboard has a per-response nonce-based Content Security Policy, and every dynamic value is HTML-escaped before rendering.
 - **Clear errors.** Caller mistakes return 400, 404, or 409 with a message; 500 is reserved for real server faults.

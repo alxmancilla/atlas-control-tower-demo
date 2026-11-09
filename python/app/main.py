@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from secrets import token_urlsafe
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, redact
@@ -21,7 +22,7 @@ from .readiness import demo_clock_age, initialization_status
 from .reanchor import reanchor_demo
 from .search import find_similar, run_search, search_status
 from .schemas import DocumentIdInput, EventInput, ExceptionActionInput, RecommendationDecisionInput, SampleEventInput, TelemetryReadingInput, ValidationSampleInput, ValidationStageInput
-from .security import guard_write_request
+from .security import dashboard_security_headers, guard_write_request
 from .services import entity_overview, kpi_snapshot, portfolio_overview
 from .telemetry import add_reading, telemetry_view
 from .validation import insert_invalid_sample, insert_valid_probe, remove_invalid, repair_invalid, transition_stage, validation_state
@@ -68,7 +69,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     async def dashboard():
-        return FileResponse(UI_PATH, media_type="text/html", headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+        nonce = token_urlsafe(24)
+        page = UI_PATH.read_text(encoding="utf-8").replace("<script>", f'<script nonce="{nonce}">', 1)
+        return HTMLResponse(page, headers=dashboard_security_headers(nonce))
 
     @app.get("/api/status")
     async def status(request: Request):

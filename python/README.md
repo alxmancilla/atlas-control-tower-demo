@@ -8,7 +8,7 @@ From this directory, use the root `.env` without copying its credentials:
 
 `uv run --env-file ../.env python -m app.run`
 
-The Python service defaults to `0.0.0.0:8000`; set `HOST` or `PYTHON_PORT` to override it. Because the default binds to the network, set `ADMIN_TOKEN` before starting it. It enforces the same Atlas-only and demo-database-name guards as the Node reference.
+The Python service defaults to `0.0.0.0:8000`; set `HOST` or `PYTHON_PORT` to override it. Because the default binds to the network, set `ADMIN_TOKEN` before starting it. Loopback hosts are allowed by default; add a LAN hostname or IP address (without a port) to `ALLOWED_HOSTS` before using the dashboard from another device. It enforces the same Atlas-only and demo-database-name guards as the Node reference.
 
 The browser page is deliberately small: its stylesheet is served from `app/static/dashboard.css`, while the page keeps the interaction code next to the DOM contract in `app/static/index.html`. Dynamic operational values remain HTML-escaped before rendering. If `ASP_TELEMETRY_ENABLED=true`, the existing telemetry response also reads recent `telemetry_rollups` written by the optional Kafka-to-Atlas Stream Processing pipeline; direct time-series telemetry remains its fallback. Processor deployment is documented in [`../docs/atlas-stream-processing.md`](../docs/atlas-stream-processing.md).
 

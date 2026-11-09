@@ -1,4 +1,5 @@
 import asyncio
+import re
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -20,6 +21,12 @@ def test_health_and_profile_discovery_do_not_need_a_database():
         assert dashboard.status_code == 200
         assert dashboard.headers["content-type"].startswith("text/html")
         assert "Atlas Control Tower" in dashboard.text
+        csp = dashboard.headers["content-security-policy"]
+        nonce = re.search(r"nonce-([^']+)", csp)
+        assert nonce is not None
+        assert f'<script nonce="{nonce.group(1)}">' in dashboard.text
+        assert "object-src 'none'" in csp
+        assert dashboard.headers["referrer-policy"] == "no-referrer"
         profiles = test_client.get("/api/profiles").json()
         assert profiles["defaultProfile"] == "retail"
         assert [profile["id"] for profile in profiles["profiles"]] == ["retail", "healthcare", "manufacturing"]
@@ -51,6 +58,15 @@ def test_status_is_safe_without_a_connection_string():
         status = test_client.get("/api/status").json()
         assert status["connected"] is False
         assert status["target"] == "unparseable connection string"
+
+
+def test_wildcard_bind_rejects_unknown_hosts_and_allows_configured_lan_host():
+    settings = Settings(mongodb_uri=None, db_name="atlas_control_tower_demo", allowed_hosts=frozenset({"localhost", "127.0.0.1", "[::1]", "tower.example"}))
+    app = create_app(settings)
+    with TestClient(app, base_url="http://example.test:8000") as test_client:
+        assert test_client.get("/health").status_code == 421
+    with TestClient(app, base_url="http://tower.example:8000") as test_client:
+        assert test_client.get("/health").status_code == 200
 
 
 def test_connection_helpers_do_not_truth_test_an_async_database():
