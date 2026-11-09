@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, redact
 from .db import connection_status, get_db, mongo_lifespan
@@ -26,6 +27,7 @@ from .telemetry import add_reading, telemetry_view
 from .validation import insert_invalid_sample, insert_valid_probe, remove_invalid, repair_invalid, transition_stage, validation_state
 
 UI_PATH = Path(__file__).parent / "static" / "index.html"
+STATIC_PATH = UI_PATH.parent
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,6 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Atlas Control Tower Demo (FastAPI)", version="0.1.0-python", lifespan=mongo_lifespan)
     app.state.settings = settings
     app.middleware("http")(guard_write_request)
+    app.mount("/static", StaticFiles(directory=STATIC_PATH), name="static")
 
     def sse_event(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), separators=(',', ':'))}\n\n"

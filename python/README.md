@@ -1,6 +1,6 @@
 # FastAPI implementation
 
-This directory is the in-progress Python recreation of the tagged Node `0.1` reference application. It uses the same non-production Atlas demo database and serves a Python-native dashboard at `http://127.0.0.1:8000/`.
+This directory is the FastAPI recreation of the tagged Node `0.1` reference application. It uses the same non-production Atlas demo database and serves a Python-native dashboard at `http://127.0.0.1:8000/`. The Node implementation remains the reference for setup/reset and its original UI; FastAPI implements the operational read/write, Change Stream, validation, reanchor, Search-read, and dashboard workflows without modifying that implementation.
 
 ## Run
 
@@ -9,6 +9,16 @@ From this directory, use the root `.env` without copying its credentials:
 `uv run --env-file ../.env python -m app.run`
 
 The Python service defaults to port `8000`; set `PYTHON_PORT` to override it. It enforces the same Atlas-only and demo-database-name guards as the Node reference.
+
+The browser page is deliberately small: its stylesheet is served from `app/static/dashboard.css`, while the page keeps the interaction code next to the DOM contract in `app/static/index.html`. Dynamic operational values remain HTML-escaped before rendering.
+
+## Opt-in live operator verification
+
+The ordinary Python tests do not contact Atlas. For a complete isolated journey, run the following from this directory. It creates and drops only the explicitly named disposable database; the name must end in `_operator_verify`, and the confirmation must repeat it exactly.
+
+`uv run --env-file ../.env python verify_operator_journey.py --database atlas_control_tower_demo_operator_verify --confirm-cleanup atlas_control_tower_demo_operator_verify`
+
+The verifier uses the existing root Node setup command to seed the temporary database, starts FastAPI on port `8011`, checks initialization, sample-event deduplication, telemetry, and observe/enforce schema validation, then stops the server and removes the temporary database even when a check fails. It does not accept or print credentials.
 
 ## Implemented endpoints
 

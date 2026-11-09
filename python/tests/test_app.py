@@ -29,11 +29,14 @@ def test_health_and_profile_discovery_do_not_need_a_database():
 def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     with client() as test_client:
         page = test_client.get("/").text
+        stylesheet = test_client.get("/static/dashboard.css")
     for label in ("Operational overview", "Milestone risk", "Event reliability", "Exception workflow", "Active load portfolio", "Control tower KPIs", "Schema validation"):
         assert label in page
     assert "data-exception-action" in page
     assert "data-recommendation" in page
     assert "data-repair" in page
+    assert 'href="/static/dashboard.css"' in page
+    assert stylesheet.headers["content-type"].startswith("text/css")
     assert "const esc=" in page
 
 
