@@ -21,6 +21,16 @@ export default {
         itemRef: 'HX-220', quantity: 150, unit: 'pieces', position: { onHand: 60, consumptionPerHour: 60 } },
     ],
   },
+  crossDomain: {
+    scenario: 'Late ASN revision and quality exposure threaten Line B production start',
+    traceId: 'MFG-HX220-ASN-01',
+    nodes: [
+      { domain: 'supplier', id: 'SUP-PCL', label: 'Precision Castings Ltd (synthetic)', relation: 'revised ASN for purchase order PO-44190', state: 'late_signal' },
+      { domain: 'inbound_logistics', id: 'DOCK-3', label: 'Plant 3 receiving dock', relation: 'stages the HX-220 lot before incoming inspection', state: 'awaiting_receipt' },
+      { domain: 'quality', id: 'INSP-2207', label: 'Incoming quality station', relation: 'must release the lot before line-side supply', state: 'exposed' },
+      { domain: 'manufacturing_execution', id: 'PLANT3-LINE-B', label: 'Plant 3 Line B work order WO-7781', relation: 'will starve when line-side material cover expires', state: 'at_risk' },
+    ],
+  },
   portfolio: [
     { trackedEntityId: 'MFG-LOT-8843', reference: 'PO-44191', destination: { id: 'PLANT3-LINE-E', name: 'Plant 3, Line E' }, state: 'in_transit',
       lastSignal: { source: 'supplier_portal', offsetMin: -14, description: 'Supplier ASN: shipment departed' }, impact: { level: 'none', lineCount: 1 } },
@@ -92,6 +102,10 @@ export default {
       resolution: 'Released after re-inspection with 4 parts scrapped; supplier added an X-ray check' },
   ],
   seedEvents: [
+    { source: 'supplier_portal', channel: 'api', eventType: 'status_note', sourceEventId: 'SUP-ASN-REV-30018', eventTimeOffsetMin: -430, receivedAtOffsetMin: -50,
+      description: 'Supplier ASN revision arrived after production planning; HX-220 inbound ETA slipped 4 hours', notes: 'Synthetic portal replay after supplier connectivity outage',
+      details: { crossDomainTrace: 'MFG-HX220-ASN-01', purchaseOrder: 'PO-44190', asnId: 'ASN-30018', supplierId: 'SUP-PCL', etaRevisionMin: 240,
+        raw: { type: 'supplier.asn_revised', purchaseOrder: 'PO-44190', asn: 'ASN-30018', delayMinutes: 240, sentAt: '{{iso}}' } } },
     { source: 'supplier_portal', eventType: 'milestone', milestoneId: 'supplier_ready', sourceEventId: 'SUP-RDY-1180', eventTimeOffsetMin: -470,
       description: 'Supplier marked lot packed and ready to ship', notes: 'Certificate of conformance uploaded',
       details: { asnId: 'ASN-30018', cocDocId: 'COC-881', cartons: 25 } },

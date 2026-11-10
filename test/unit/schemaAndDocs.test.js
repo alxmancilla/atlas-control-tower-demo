@@ -51,9 +51,14 @@ test('every profile is structurally valid and builds envelope documents', () => 
     assert.equal(evt.idempotencyKey, `${evt.source}:${evt.sourceEventId}`);
     assert.ok(evt.eventTime instanceof Date);
   }
-  const retail = buildTrackedEntity(getProfile('retail'), now);
-  assert.equal(retail.crossDomain.traceId, 'RTL-BERRIES-ETA-01');
-  assert.equal(retail.crossDomain.nodes.length, 4);
+  for (const id of PROFILE_IDS) {
+    const profile = getProfile(id);
+    const entity = buildTrackedEntity(profile, now);
+    const signal = profile.seedEvents.find((event) => event.details?.crossDomainTrace === entity.crossDomain?.traceId);
+    assert.equal(entity.crossDomain.nodes.length, 4, `${id} cross-domain topology`);
+    assert.ok(signal, `${id} trace-linked source signal`);
+    assert.ok(signal.receivedAtOffsetMin - signal.eventTimeOffsetMin > profile.risk.lateArrivalMin, `${id} signal is late`);
+  }
 });
 
 test('repair plan fixes correlatable legacy events and refuses unknown ones', () => {

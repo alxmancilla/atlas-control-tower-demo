@@ -13,6 +13,12 @@ def test_quality_issue_types_cover_reliability_flags_and_duplicate_suppression()
     assert quality_issue_types({"reliability": {"flags": [], "duplicateCount": 0}}) == []
 
 
+def test_cross_domain_profile_sources_are_available_to_fastapi_event_validation():
+    assert get_profile("retail").sources["berry_supplier"] == "api"
+    assert get_profile("healthcare").sources["reagent_supplier"] == "api"
+    assert get_profile("manufacturing").sources["supplier_portal"] == "edi"
+
+
 class Result:
     upserted_id = ObjectId()
 
@@ -65,6 +71,11 @@ class Cursor:
 
 
 class TraceDatabase:
+    def __init__(self, profile_id, trace_id, source):
+        self.profile_id = profile_id
+        self.trace_id = trace_id
+        self.source = source
+
     def __getitem__(self, name):
         if name == "tracked_entities":
             return type("Entities", (), {"find_one": staticmethod(self.entity)})()
@@ -72,14 +83,20 @@ class TraceDatabase:
         return type("Events", (), {"find": staticmethod(self.events)})()
 
     async def entity(self, *_args, **_kwargs):
-        return {"trackedEntityId": "RTL-SHP-24017", "crossDomain": {"traceId": "RTL-BERRIES-ETA-01", "nodes": [{"domain": "supplier"}]}}
+        return {"trackedEntityId": get_profile(self.profile_id).entity_id, "crossDomain": {"traceId": self.trace_id, "nodes": [{"domain": "supplier"}]}}
 
     def events(self, query, _projection):
-        assert query["details.crossDomainTrace"] == "RTL-BERRIES-ETA-01"
-        return Cursor([{"source": "berry_supplier", "description": "Late supplier ETA"}])
+        assert query["details.crossDomainTrace"] == self.trace_id
+        return Cursor([{"source": self.source, "description": "Late upstream source signal"}])
 
 
-def test_disruption_trace_reads_embedded_topology_and_linked_source_signal():
-    result = asyncio.run(disruption_trace(TraceDatabase(), get_profile("retail")))
-    assert result["trace"]["nodes"][0]["domain"] == "supplier"
-    assert result["signals"] == [{"source": "berry_supplier", "description": "Late supplier ETA"}]
+def test_disruption_trace_reads_each_profile_topology_and_linked_source_signal():
+    scenarios = (
+        ("retail", "RTL-BERRIES-ETA-01", "berry_supplier"),
+        ("healthcare", "HC-REAGENT-RELEASE-01", "reagent_supplier"),
+        ("manufacturing", "MFG-HX220-ASN-01", "supplier_portal"),
+    )
+    for profile_id, trace_id, source in scenarios:
+        result = asyncio.run(disruption_trace(TraceDatabase(profile_id, trace_id, source), get_profile(profile_id)))
+        assert result["trace"]["nodes"][0]["domain"] == "supplier"
+        assert result["signals"] == [{"source": source, "description": "Late upstream source signal"}]

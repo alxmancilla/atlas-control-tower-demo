@@ -21,6 +21,16 @@ export default {
         itemRef: 'RK-200', quantity: 12, unit: 'kits', position: { onHand: 4, consumptionPerHour: 2 } },
     ],
   },
+  crossDomain: {
+    scenario: 'Late supplier release threatens temperature-controlled lab replenishment',
+    traceId: 'HC-REAGENT-RELEASE-01',
+    nodes: [
+      { domain: 'supplier', id: 'SUP-REAGENT-17', label: 'Aster Reagent Supply (synthetic)', relation: 'revised release timing for transfer order TO-55021', state: 'late_signal' },
+      { domain: 'fulfillment', id: 'HUB-CENTRAL', label: 'Central Supply Hub allocation', relation: 'prepared validated cooler box CB-17 for the transfer', state: 'allocated' },
+      { domain: 'transportation', id: 'HC-TRF-3307', label: 'Same-day controlled courier transfer', relation: 'carries allocated kits through the custody handoff', state: 'in_transit' },
+      { domain: 'customer', id: 'LAB-NORTH', label: 'Northside Facility Lab receiving desk', relation: 'first facility stop; reagent cover is exposed', state: 'at_risk' },
+    ],
+  },
   portfolio: [
     { trackedEntityId: 'HC-TRF-3308', reference: 'TO-55022', destination: { id: 'LAB-SOUTH', name: 'Southside Facility Lab' }, state: 'in_transit',
       lastSignal: { source: 'courier', offsetMin: -9, description: 'Courier GPS: cold-chain transfer on route' }, impact: { level: 'none', lineCount: 1 } },
@@ -31,6 +41,7 @@ export default {
       lastSignal: { source: 'supply_hub', offsetMin: -18, description: 'Supply hub: transfer released to carrier' }, impact: { level: 'watch', lineCount: 2 } },
   ],
   sources: {
+    reagent_supplier: { label: 'Reagent supplier release API', channel: 'api' },
     supply_hub: { label: 'Supply hub inventory system', channel: 'wms_scan' },
     courier: { label: 'Courier dispatch app', channel: 'api' },
     receiving_lab: { label: 'Facility receiving desk', channel: 'manual' },
@@ -91,6 +102,10 @@ export default {
       resolution: 'Swapped to a pre-conditioned cooler at the relay; QA cleared the kits after reviewing the excursion' },
   ],
   seedEvents: [
+    { source: 'reagent_supplier', channel: 'api', eventType: 'status_note', sourceEventId: 'SUP-REL-55021', eventTimeOffsetMin: -250, receivedAtOffsetMin: -55,
+      description: 'Supplier release revision arrived after hub allocation; RK-200 kits are 3 hours behind plan', notes: 'Synthetic supplier API replay after a connectivity outage; operational data only',
+      details: { crossDomainTrace: 'HC-REAGENT-RELEASE-01', transferOrder: 'TO-55021', supplierId: 'SUP-REAGENT-17', releaseDelayMin: 180,
+        raw: { type: 'supplier.release_revised', transferOrder: 'TO-55021', supplier: 'SUP-REAGENT-17', delayMinutes: 180, sentAt: '{{iso}}' } } },
     { source: 'supply_hub', eventType: 'milestone', milestoneId: 'released', sourceEventId: 'HUB-REL-2201', eventTimeOffsetMin: -182,
       description: 'Transfer released from Central Supply Hub cold room', notes: 'Packed in validated cooler box CB-17',
       details: { coldRoom: 'CR-2', coolerBoxId: 'CB-17', pickListId: 'PL-9081' } },
