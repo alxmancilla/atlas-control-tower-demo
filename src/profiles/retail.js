@@ -22,6 +22,16 @@ export default {
         itemRef: 'SKU-55120', quantity: 140, unit: 'cases', position: { onHand: 70, consumptionPerHour: 15 } },
     ],
   },
+  crossDomain: {
+    scenario: 'Supplier ETA disruption threatens a weekend store promotion',
+    traceId: 'RTL-BERRIES-ETA-01',
+    nodes: [
+      { domain: 'supplier', id: 'SUP-BERRY-44', label: 'North Valley Berry Growers', relation: 'revised inbound ETA for PO-45018', state: 'late_signal' },
+      { domain: 'fulfillment', id: 'DC-EAST-02', label: 'East Regional DC allocation', relation: 'released 24 pallets for replenishment order RO-77821', state: 'allocated' },
+      { domain: 'transportation', id: 'RTL-SHP-24017', label: 'FRTX chilled replenishment shipment', relation: 'carries the allocated berries to three stores', state: 'in_transit' },
+      { domain: 'customer', id: 'STORE-1187', label: 'Store #1187 Riverside promo end cap', relation: 'first delivery stop; shelf cover is exposed', state: 'at_risk' },
+    ],
+  },
   portfolio: [
     { trackedEntityId: 'RTL-SHP-24018', reference: 'RO-77824', destination: { id: 'STORE-1210', name: 'Store #1210 Midtown' }, state: 'in_transit',
       lastSignal: { source: 'carrier', offsetMin: -12, description: 'GPS ping: vehicle on route' }, impact: { level: 'none', lineCount: 2 } },
@@ -32,6 +42,7 @@ export default {
       lastSignal: { source: 'dc_wms', offsetMin: -26, description: 'WMS: outbound pallet staged, waiting for carrier' }, impact: { level: 'watch', lineCount: 1 } },
   ],
   sources: {
+    berry_supplier: { label: 'Berry supplier ETA API', channel: 'api' },
     carrier: { label: 'Carrier TMS feed', channel: 'edi' },
     dc_wms: { label: 'DC warehouse system (WMS)', channel: 'wms_scan' },
     store_receiving: { label: 'Store receiving app', channel: 'manual' },
@@ -96,6 +107,10 @@ export default {
       resolution: 'Carrier dispatched a replacement tractor; we pulled the store delivery forward on the next run' },
   ],
   seedEvents: [
+    { source: 'berry_supplier', channel: 'api', eventType: 'status_note', sourceEventId: 'SUP-ETA-45018', eventTimeOffsetMin: -310, receivedAtOffsetMin: -50,
+      description: 'Supplier ETA revision arrived after DC allocation; chilled berries are 4 hours behind plan', notes: 'Supplier API replayed the ETA after a connectivity outage',
+      details: { crossDomainTrace: 'RTL-BERRIES-ETA-01', purchaseOrder: 'PO-45018', supplierId: 'SUP-BERRY-44', etaRevisionMin: 240,
+        raw: { type: 'supplier.eta_revised', purchaseOrder: 'PO-45018', supplier: 'SUP-BERRY-44', delayMinutes: 240, sentAt: '{{iso}}' } } },
     { source: 'dc_wms', eventType: 'milestone', milestoneId: 'ready_for_pickup', sourceEventId: 'WMS-RDY-4410', eventTimeOffsetMin: -296,
       description: 'Pallets staged at outbound door D7 and released for pickup', notes: 'All 24 pallets wrapped and labeled',
       details: { dockDoor: 'D7', handheldId: 'HH-22', palletsStaged: 24 } },

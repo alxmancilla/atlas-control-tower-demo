@@ -32,7 +32,7 @@ def test_event_builder_validates_profile_contract_and_reliability():
     assert event["idempotencyKey"] == "carrier:TMS-TEST-1"
     assert event["channel"] == "edi"
     reliability = classify_arrival(event["eventTime"], received, None, None, profile.risk)
-    assert reliability == {"status": "late", "flags": ["late"], "lagMinutes": 45, "duplicateCount": 0}
+    assert reliability == {"status": "late", "flags": ["late"], "lagMinutes": 45, "duplicateCount": 0, "confidence": "medium"}
     with pytest.raises(ValueError, match="validation error"):
         EventInput.model_validate({"source": "carrier"})
 

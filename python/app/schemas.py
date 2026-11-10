@@ -28,6 +28,12 @@ class ExceptionActionInput(BaseModel):
     operator: str | None = Field(default=None, max_length=500)
 
 
+class DataQualityActionInput(BaseModel):
+    action: str = Field(min_length=1, max_length=50)
+    note: str | None = Field(default=None, max_length=500)
+    operator: str | None = Field(default=None, max_length=500)
+
+
 class RecommendationDecisionInput(BaseModel):
     action_id: str = Field(alias="actionId", min_length=1, max_length=100)
     decision: str = Field(min_length=1, max_length=20)

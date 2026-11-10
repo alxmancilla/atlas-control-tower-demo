@@ -73,6 +73,14 @@ export function validateProfile(p) {
     if (!(l.position?.onHand >= 0 && l.position?.consumptionPerHour > 0)) errors.push(`order line ${l.orderRef} needs position.onHand >= 0 and consumptionPerHour > 0`);
   }
   if (!p.impact?.consequence) errors.push('impact.consequence is required');
+  if (p.crossDomain) {
+    if (!p.crossDomain.traceId || !Array.isArray(p.crossDomain.nodes) || p.crossDomain.nodes.length < 2) {
+      errors.push('crossDomain needs a traceId and at least two bounded nodes');
+    }
+    if (!events.some((event) => event.details?.crossDomainTrace === p.crossDomain.traceId)) {
+      errors.push('crossDomain needs a supporting source event');
+    }
+  }
   for (const level of ['critical', 'high', 'watch', 'none']) {
     if (typeof p.priority?.businessImpactPoints?.[level] !== 'number') errors.push(`priority.businessImpactPoints.${level} must be a number`);
   }

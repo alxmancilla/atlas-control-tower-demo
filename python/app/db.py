@@ -14,6 +14,7 @@ COLLECTIONS = {
     "entities": "tracked_entities",
     "events": "operational_events",
     "exceptions": "exceptions",
+    "quality_issues": "data_quality_issues",
     "telemetry": "telemetry_readings",
     "telemetry_rollups": "telemetry_rollups",
     "positions": "inventory_positions",

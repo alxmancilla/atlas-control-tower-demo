@@ -6,6 +6,7 @@ export const COLL = {
   entities: 'tracked_entities',
   events: 'operational_events',
   exceptions: 'exceptions',
+  qualityIssues: 'data_quality_issues',
   telemetry: 'telemetry_readings',
   telemetryRollups: 'telemetry_rollups',
   positions: 'inventory_positions',
@@ -34,6 +35,10 @@ export const INDEXES = [
     reason: 'Exception queue filtered by status and ordered by SLA.' },
   { coll: COLL.exceptions, key: { trackedEntityId: 1, status: 1 }, options: { name: 'entity_status' },
     reason: 'Join target for the overview $lookup: open exceptions per tracked entity.' },
+  { coll: COLL.qualityIssues, key: { issueKey: 1 }, options: { unique: true, name: 'issueKey_unique' },
+    reason: 'One quality work item per source event and issue type, including duplicate suppression.' },
+  { coll: COLL.qualityIssues, key: { profile: 1, trackedEntityId: 1, status: 1, severity: -1, updatedAt: -1 }, options: { name: 'profile_entity_status_priority' },
+    reason: 'Data-quality queue for the selected operational entity, ordered by state and severity.' },
   { coll: COLL.positions, key: { locationId: 1, itemRef: 1 }, options: { unique: true, name: 'location_item_unique' },
     reason: 'One stock position per location and item; join target for the business-impact $lookup.' },
   { coll: COLL.telemetry, key: { 'meta.trackedEntityId': 1, 'meta.metric': 1, ts: 1 }, options: { name: 'meta_entity_metric_ts' },
@@ -85,7 +90,7 @@ export async function collectionInfo(db) {
 export async function ensureSetup(db) {
   const existing = await collectionInfo(db);
   const created = [];
-  for (const name of [COLL.entities, COLL.events, COLL.exceptions, COLL.positions, COLL.kpis, COLL.telemetryRollups, COLL.state]) {
+  for (const name of [COLL.entities, COLL.events, COLL.exceptions, COLL.qualityIssues, COLL.positions, COLL.kpis, COLL.telemetryRollups, COLL.state]) {
     if (!existing[name]) {
       await db.createCollection(name);
       created.push(name);

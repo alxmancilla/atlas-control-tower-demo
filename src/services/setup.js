@@ -9,6 +9,7 @@ import { recomputeImpact, seedPositions } from './impact.js';
 import { createSearchIndexes } from './search.js';
 import { memo, invalidate } from './cache.js';
 import { BadRequestError } from '../errors.js';
+import { upsertQualityIssues } from './dataQuality.js';
 
 /**
  * Seeds one profile. Safe to run repeatedly: entities upsert by trackedEntityId, seed events already
@@ -42,13 +43,18 @@ export async function seedProfile(db, profile, now = new Date()) {
       report.events.already_present = (report.events.already_present ?? 0) + 1;
       continue;
     }
-    const receivedAt = new Date(evt.eventTime.getTime() + 2 * 60000);
+    const receivedAt = new Date(anchorAt.getTime() + (spec.receivedAtOffsetMin ?? spec.eventTimeOffsetMin + 2) * 60000);
     const res = await ingestEvent(db, profile, evt, { receivedAt });
     report.events[res.outcome] = (report.events[res.outcome] ?? 0) + 1;
     if (res.exception?.outcome === 'opened' && spec.afterSeed) {
       const exc = await db.collection(COLL.exceptions).findOne({ exceptionKey: exceptionKeyFor(profile.id, evt.trackedEntityId, spec.exception.category) });
       for (const step of spec.afterSeed) await applyExceptionAction(db, exc.exceptionId, { action: step.action, operator: step.by });
     }
+  }
+  // Backfill issues for events that existed before this collection was introduced.
+  let qualityIssues = 0;
+  for await (const event of db.collection(COLL.events).find({ profile: profile.id, reliability: { $type: 'object' } })) {
+    qualityIssues += (await upsertQualityIssues(db, profile, event)).filter((issue) => issue.outcome === 'opened').length;
   }
 
   const events = db.collection(COLL.events);
@@ -75,6 +81,7 @@ export async function seedProfile(db, profile, now = new Date()) {
     historyAdded += res.upsertedCount;
   }
   report.history = { added: historyAdded, total: profile.history?.length ?? 0 };
+  report.qualityIssues = qualityIssues;
   report.businessImpact = (await recomputeImpact(db, profile))?.level ?? null;
   return report;
 }

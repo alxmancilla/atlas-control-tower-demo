@@ -41,9 +41,10 @@ test('workflow transitions enforce allowed states and required fields', () => {
 
 test('arrival classification detects late, out-of-order, and repeated milestones', () => {
   const risk = retail.risk;
-  assert.deepEqual(classifyArrival({ eventTime: at(-2), receivedAt: now }, risk), { status: 'accepted', flags: [], lagMinutes: 2 });
+  assert.deepEqual(classifyArrival({ eventTime: at(-2), receivedAt: now }, risk), { status: 'accepted', flags: [], lagMinutes: 2, confidence: 'high' });
   const late = classifyArrival({ eventTime: at(-190), receivedAt: now, latestEventTime: at(-10), milestoneRecordedAt: at(-200) }, risk);
   assert.equal(late.status, 'out_of_order');
+  assert.equal(late.confidence, 'low');
   assert.deepEqual(late.flags.sort(), ['late', 'milestone_already_recorded', 'out_of_order']);
   const earlier = classifyArrival({ eventTime: at(-250), receivedAt: now, milestoneRecordedAt: at(-200) }, risk);
   assert.ok(earlier.flags.includes('milestone_earlier_report'));

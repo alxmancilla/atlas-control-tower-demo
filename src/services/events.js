@@ -4,6 +4,7 @@ import { buildEvent, byIdempotencyKey, idempotencyKey } from '../domain/document
 import { openOrUpdateException } from './exceptions.js';
 import { BadRequestError } from '../errors.js';
 import { recomputeImpact } from './impact.js';
+import { upsertQualityIssues } from './dataQuality.js';
 
 const isDuplicateKey = (err, field) => err?.code === 11000 && (!field || String(err.message).includes(field));
 
@@ -66,18 +67,20 @@ async function insertNew(db, profile, doc, session) {
   const res = await events.insertOne(doc, { session });
   doc._id = res.insertedId;
   const exception = doc.exception?.category ? await openOrUpdateException(db, profile, doc, { session }) : null;
-  return { outcome: doc.reliability.status, event: doc, exception, transactional: true };
+  const qualityIssues = await upsertQualityIssues(db, profile, doc, { session });
+  return { outcome: doc.reliability.status, event: doc, exception, qualityIssues, transactional: true };
 }
 
 async function recordDuplicate(db, profile, doc, session) {
   const original = await db.collection(COLL.events).findOneAndUpdate(
     byIdempotencyKey(doc.idempotencyKey),
-    { $inc: { 'reliability.duplicateCount': 1 }, $set: { 'reliability.lastDuplicateAt': doc.receivedAt } },
+    { $inc: { 'reliability.duplicateCount': 1 }, $set: { 'reliability.lastDuplicateAt': doc.receivedAt, 'reliability.confidence': 'medium' } },
     { returnDocument: 'after', session }
   );
   // Re-linking is idempotent, so a retry after a partial failure still converges to one work item.
   const exception = original?.exception?.category ? await openOrUpdateException(db, profile, original, { session }) : null;
-  return { outcome: 'deduplicated', event: original, exception, transactional: true };
+  const qualityIssues = await upsertQualityIssues(db, profile, original, { session });
+  return { outcome: 'deduplicated', event: original, exception, qualityIssues, transactional: true };
 }
 
 export async function triggerSample(db, profile, sampleId, now = new Date()) {

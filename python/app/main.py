@@ -15,16 +15,18 @@ from .config import Settings, redact
 from .db import connection_status, get_db, mongo_lifespan
 from .errors import AppError, Conflict, ServiceUnavailable
 from .events import ingest_event, reliability_summary, timeline, trigger_sample
+from .data_quality import apply_quality_issue_action, data_quality_queue
 from .exceptions import apply_exception_action, decide_recommended_action, exception_queue
 from .profiles import PROFILES, get_profile
 from .maintenance import maintenance_state, with_maintenance
 from .readiness import demo_clock_age, initialization_status
 from .reanchor import reanchor_demo
 from .search import find_similar, run_search, search_status
-from .schemas import DocumentIdInput, EventInput, ExceptionActionInput, RecommendationDecisionInput, SampleEventInput, TelemetryReadingInput, ValidationSampleInput, ValidationStageInput
+from .schemas import DataQualityActionInput, DocumentIdInput, EventInput, ExceptionActionInput, RecommendationDecisionInput, SampleEventInput, TelemetryReadingInput, ValidationSampleInput, ValidationStageInput
 from .security import dashboard_security_headers, guard_write_request
 from .services import entity_overview, kpi_snapshot, portfolio_overview
 from .telemetry import add_reading, telemetry_view
+from .trace import disruption_trace
 from .validation import insert_invalid_sample, insert_valid_probe, remove_invalid, repair_invalid, transition_stage, validation_state
 
 UI_PATH = Path(__file__).parent / "static" / "index.html"
@@ -158,6 +160,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def get_timeline(request: Request, profile: str | None = None):
         return {"events": await timeline(await view_ready(request), profile_from_query(profile))}
 
+    @app.get("/api/data-quality")
+    async def data_quality(request: Request, profile: str | None = None):
+        selected = profile_from_query(profile)
+        return {"queue": await data_quality_queue(await view_ready(request), selected)}
+
+    @app.get("/api/disruption-trace")
+    async def get_disruption_trace(request: Request, profile: str | None = None):
+        trace = await disruption_trace(await view_ready(request), profile_from_query(profile))
+        if trace is None:
+            raise HTTPException(status_code=404, detail="Demo data not found for this profile. Initialize the demo database first.")
+        return {"trace": trace}
+
     @app.get("/api/validation")
     async def get_validation(request: Request):
         return await validation_state(await view_ready(request))
@@ -222,6 +236,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def post_exception_action(request: Request, exception_id: str, body: ExceptionActionInput, profile: str | None = None):
         selected = profile_from_query(profile)
         return await apply_exception_action(await write_ready(request, selected), exception_id, body.model_dump())
+
+    @app.post("/api/data-quality/{issue_id}/action")
+    async def post_data_quality_action(request: Request, issue_id: str, body: DataQualityActionInput, profile: str | None = None):
+        selected = profile_from_query(profile)
+        return await apply_quality_issue_action(await write_ready(request, selected), issue_id, body.model_dump())
 
     @app.post("/api/exceptions/{exception_id}/recommendation")
     async def post_recommendation_decision(request: Request, exception_id: str, body: RecommendationDecisionInput, profile: str | None = None):

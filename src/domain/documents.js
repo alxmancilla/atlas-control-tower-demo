@@ -27,6 +27,8 @@ export function buildTrackedEntity(profile, anchorAt) {
       maxDwellMin: m.maxDwellMin,
     })),
     metadata,
+    // Bounded supplier → fulfillment → shipment → customer context, always read with this load.
+    crossDomain: profile.crossDomain ?? null,
     anchorAt: new Date(anchorAt),
     demo: { seeded: true },
   };

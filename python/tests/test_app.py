@@ -37,10 +37,11 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     with client() as test_client:
         page = test_client.get("/").text
         stylesheet = test_client.get("/static/dashboard.css")
-    for label in ("Operational overview", "Milestone risk", "Event reliability", "Exception workflow", "Active load portfolio", "Control tower KPIs", "Schema validation"):
+    for label in ("Operational overview", "Milestone risk", "Event reliability", "Data-quality queue", "Cross-domain disruption trace", "Exception workflow", "Active load portfolio", "Control tower KPIs", "Schema validation"):
         assert label in page
     assert "data-exception-action" in page
     assert "data-recommendation" in page
+    assert "data-quality-action" in page
     assert "data-repair" in page
     assert 'href="/static/dashboard.css"' in page
     assert stylesheet.headers["content-type"].startswith("text/css")

@@ -28,7 +28,7 @@ def test_change_summary_and_pipeline_exclude_time_series_documents():
     summary = summarize_change(sample_change())
     assert summary == {"coll": "exceptions", "op": "update", "id": "mongo-id", "profile": "retail", "trackedEntityId": "RTL-SHP-24017", "eventType": None, "reliability": "accepted", "duplicateCount": 2, "exceptionId": "EXC-1", "exceptionStatus": "acknowledged", "description": "Carrier delay", "updatedFields": ["status", "audit"], "txn": "9", "clusterTime": summary["clusterTime"]}
     assert summary["clusterTime"].isoformat() == "2026-01-01T00:00:00+00:00"
-    assert WATCHED_COLLECTIONS == ("operational_events", "exceptions", "tracked_entities", "telemetry_rollups", "demo_state")
+    assert WATCHED_COLLECTIONS == ("operational_events", "exceptions", "data_quality_issues", "tracked_entities", "telemetry_rollups", "demo_state")
     assert ChangeFeed.pipeline() == [{"$match": {"ns.coll": {"$in": list(WATCHED_COLLECTIONS)}, "operationType": {"$in": ["insert", "update", "replace", "delete"]}}}]
 
 

@@ -9,6 +9,7 @@ from pymongo.errors import DuplicateKeyError
 from .db import COLLECTIONS
 from .errors import BadRequest
 from .exceptions import open_or_update_exception
+from .data_quality import upsert_quality_issues
 from .profiles import Profile, Sample
 from .schemas import EventInput
 
@@ -46,7 +47,8 @@ def classify_arrival(event_time: datetime, received_at: datetime, latest: dateti
         flags.append("out_of_order")
     if milestone_recorded:
         flags.append("milestone_earlier_report" if _utc(event_time) < _utc(milestone_recorded) else "milestone_already_recorded")
-    return {"status": "out_of_order" if "out_of_order" in flags else "late" if "late" in flags else "accepted", "flags": flags, "lagMinutes": lag, "duplicateCount": 0}
+    confidence = "low" if any(flag in {"out_of_order", "future_event_time"} for flag in flags) else "medium" if flags else "high"
+    return {"status": "out_of_order" if "out_of_order" in flags else "late" if "late" in flags else "accepted", "flags": flags, "lagMinutes": lag, "duplicateCount": 0, "confidence": confidence}
 
 
 def build_event(profile: Profile, payload: EventInput, received_at: datetime) -> dict:
@@ -100,15 +102,17 @@ async def _insert_new(db, profile: Profile, event: dict, session) -> dict:
     result = await events.insert_one(event, session=session)
     event["_id"] = result.inserted_id
     exception = await open_or_update_exception(db, profile, event, session) if event.get("exception") else None
-    return {"outcome": event["reliability"]["status"], "eventId": str(result.inserted_id), "exception": exception, "transactional": True}
+    quality_issues = await upsert_quality_issues(db, profile, event, session)
+    return {"outcome": event["reliability"]["status"], "eventId": str(result.inserted_id), "exception": exception, "qualityIssues": quality_issues, "transactional": True}
 
 
 async def _record_duplicate(db, profile: Profile, event: dict, session) -> dict:
-    original = await db[COLLECTIONS["events"]].find_one_and_update({"idempotencyKey": {"$eq": event["idempotencyKey"], "$type": "string"}}, {"$inc": {"reliability.duplicateCount": 1}, "$set": {"reliability.lastDuplicateAt": event["receivedAt"]}}, return_document=ReturnDocument.AFTER, session=session)
+    original = await db[COLLECTIONS["events"]].find_one_and_update({"idempotencyKey": {"$eq": event["idempotencyKey"], "$type": "string"}}, {"$inc": {"reliability.duplicateCount": 1}, "$set": {"reliability.lastDuplicateAt": event["receivedAt"], "reliability.confidence": "medium"}}, return_document=ReturnDocument.AFTER, session=session)
     if not original:
         raise BadRequest("Duplicate event could not be located after its idempotency conflict")
     exception = await open_or_update_exception(db, profile, original, session) if original.get("exception") else None
-    return {"outcome": "deduplicated", "eventId": str(original["_id"]), "exception": exception, "transactional": True}
+    quality_issues = await upsert_quality_issues(db, profile, original, session)
+    return {"outcome": "deduplicated", "eventId": str(original["_id"]), "exception": exception, "qualityIssues": quality_issues, "transactional": True}
 
 
 def _fill_templates(value: object, when: datetime) -> object:

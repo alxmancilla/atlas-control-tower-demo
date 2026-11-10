@@ -92,7 +92,8 @@ export function classifyArrival({ eventTime, receivedAt, latestEventTime, milest
     flags.push(new Date(eventTime) < new Date(milestoneRecordedAt) ? 'milestone_earlier_report' : 'milestone_already_recorded');
   }
   const status = flags.includes('out_of_order') ? 'out_of_order' : flags.includes('late') ? 'late' : 'accepted';
-  return { status, flags, lagMinutes };
+  const confidence = flags.some((flag) => ['out_of_order', 'future_event_time'].includes(flag)) ? 'low' : flags.length ? 'medium' : 'high';
+  return { status, flags, lagMinutes, confidence };
 }
 
 // ---------- MongoDB 9.0 constraint gate ----------

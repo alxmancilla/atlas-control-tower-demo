@@ -51,6 +51,9 @@ test('every profile is structurally valid and builds envelope documents', () => 
     assert.equal(evt.idempotencyKey, `${evt.source}:${evt.sourceEventId}`);
     assert.ok(evt.eventTime instanceof Date);
   }
+  const retail = buildTrackedEntity(getProfile('retail'), now);
+  assert.equal(retail.crossDomain.traceId, 'RTL-BERRIES-ETA-01');
+  assert.equal(retail.crossDomain.nodes.length, 4);
 });
 
 test('repair plan fixes correlatable legacy events and refuses unknown ones', () => {
