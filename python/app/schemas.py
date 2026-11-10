@@ -43,6 +43,12 @@ class RecommendationDecisionInput(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ExecutionActionInput(BaseModel):
+    action: str = Field(min_length=1, max_length=50)
+    note: str | None = Field(default=None, max_length=500)
+    operator: str | None = Field(default=None, max_length=500)
+
+
 class TelemetryReadingInput(BaseModel):
     kind: str = Field(min_length=1, max_length=20)
 

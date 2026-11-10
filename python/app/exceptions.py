@@ -9,6 +9,7 @@ from pymongo import ReturnDocument
 
 from .db import COLLECTIONS
 from .errors import BadRequest, Conflict, NotFound
+from .execution_outbox import create_execution_request
 from .profiles import Profile
 
 
@@ -105,25 +106,33 @@ async def decide_recommended_action(db, exception_id: str, payload: dict) -> dic
     if decision not in {"accepted", "declined"}:
         raise BadRequest('Decision must be "accepted" or "declined"')
     coll = db[COLLECTIONS["exceptions"]]
-    current = await coll.find_one({"exceptionId": exception_id})
-    if not current:
-        raise NotFound(f"Exception {exception_id} not found")
-    if current["status"] == "resolved":
-        raise Conflict("Cannot decide an action for a resolved exception")
-    action = next((item for item in current.get("recommendedActions", []) if item.get("actionId") == action_id), None)
-    if not action:
-        raise Conflict("This recommended action is no longer available. Refresh and retry.")
-    if current.get("actionDecisions", {}).get(action_id):
-        raise Conflict("This recommended action has already been decided")
-    note, by = _clean(payload.get("note")), _clean(payload.get("operator")) or "demo.operator"
-    if decision == "declined" and not note:
-        raise BadRequest("Declining a recommendation requires a reason")
-    now = datetime.now(timezone.utc)
-    record = {"decision": decision, "by": by, "at": now, **({"note": note} if note else {})}
-    result = await coll.find_one_and_update({"exceptionId": exception_id, "status": {"$ne": "resolved"}, "recommendedActions.actionId": action_id, f"actionDecisions.{action_id}": {"$exists": False}}, {"$set": {f"actionDecisions.{action_id}": record, "updatedAt": now}, "$push": _audit({"at": now, "action": f"recommendation_{decision}", "by": by, "note": f"{action.get('title', action_id)}{f' — {note}' if note else ''}"})}, return_document=ReturnDocument.AFTER)
-    if not result:
-        raise Conflict("The recommendation changed while you were working on it. Refresh and retry.")
-    return _json_safe(result)
+
+    async def apply(session=None):
+        current = await coll.find_one({"exceptionId": exception_id}, session=session)
+        if not current:
+            raise NotFound(f"Exception {exception_id} not found")
+        if current["status"] == "resolved":
+            raise Conflict("Cannot decide an action for a resolved exception")
+        action = next((item for item in current.get("recommendedActions", []) if item.get("actionId") == action_id), None)
+        if not action:
+            raise Conflict("This recommended action is no longer available. Refresh and retry.")
+        if current.get("actionDecisions", {}).get(action_id):
+            raise Conflict("This recommended action has already been decided")
+        note, by = _clean(payload.get("note")), _clean(payload.get("operator")) or "demo.operator"
+        if decision == "declined" and not note:
+            raise BadRequest("Declining a recommendation requires a reason")
+        now = datetime.now(timezone.utc)
+        record = {"decision": decision, "by": by, "at": now, **({"note": note} if note else {})}
+        result = await coll.find_one_and_update({"exceptionId": exception_id, "status": {"$ne": "resolved"}, "recommendedActions.actionId": action_id, f"actionDecisions.{action_id}": {"$exists": False}}, {"$set": {f"actionDecisions.{action_id}": record, "updatedAt": now}, "$push": _audit({"at": now, "action": f"recommendation_{decision}", "by": by, "note": f"{action.get('title', action_id)}{f' — {note}' if note else ''}"})}, return_document=ReturnDocument.AFTER, session=session)
+        if not result:
+            raise Conflict("The recommendation changed while you were working on it. Refresh and retry.")
+        execution = await create_execution_request(db, profile=current["profile"], exception=current, action=action, decision=record, now=now, session=session) if decision == "accepted" else None
+        return _json_safe({**result, "execution": execution} if execution else result)
+
+    if decision != "accepted":
+        return await apply()
+    async with db.client.start_session() as session:
+        return await session.with_transaction(lambda inner_session: apply(inner_session))
 
 
 def _json_safe(value):

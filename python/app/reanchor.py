@@ -36,6 +36,15 @@ def quality_issue_shift_pipeline(milliseconds: int) -> list[dict]:
     }}]
 
 
+def execution_outbox_shift_pipeline(milliseconds: int) -> list[dict]:
+    audit = {"$map": {"input": "$audit", "as": "entry", "in": {"$mergeObjects": ["$$entry", {"at": _shift("$$entry.at", milliseconds)}]}}}
+    return [{"$set": {
+        "createdAt": _shift("$createdAt", milliseconds), "updatedAt": _shift("$updatedAt", milliseconds),
+        "handoff": {"$cond": [{"$eq": [{"$type": "$handoff"}, "object"]}, {"$mergeObjects": ["$handoff", {"acceptedDecision": _shift_embedded("handoff.acceptedDecision", "at", milliseconds)}]}, "$handoff"]},
+        "audit": {"$cond": [{"$isArray": "$audit"}, audit, "$audit"]},
+    }}]
+
+
 def entity_shift_pipeline(milliseconds: int) -> list[dict]:
     milestones = {"$map": {"input": "$plannedMilestones", "as": "milestone", "in": {"$mergeObjects": ["$$milestone", {"plannedTime": _shift("$$milestone.plannedTime", milliseconds)}]}}}
     trusted_signal = {"$mergeObjects": ["$portfolio", {"lastTrustedSignal": {"$mergeObjects": ["$portfolio.lastTrustedSignal", {"at": _shift("$portfolio.lastTrustedSignal.at", milliseconds)}]}}]}
@@ -64,6 +73,7 @@ async def _reanchor_profile(db, profile: Profile, now: datetime) -> dict[str, ob
     events = await db[COLLECTIONS["events"]].update_many(scope, event_shift_pipeline(milliseconds), bypass_document_validation=True)
     exceptions = await db[COLLECTIONS["exceptions"]].update_many(scope, exception_shift_pipeline(milliseconds))
     quality_issues = await db[COLLECTIONS["quality_issues"]].update_many(scope, quality_issue_shift_pipeline(milliseconds))
+    execution_outbox = await db[COLLECTIONS["execution_outbox"]].update_many(scope, execution_outbox_shift_pipeline(milliseconds))
     await entities.update_many(scope, entity_shift_pipeline(milliseconds))
     telemetry = db[COLLECTIONS["telemetry"]]
     removed = await telemetry.delete_many({"meta.trackedEntityId": profile.entity_id})
@@ -74,7 +84,7 @@ async def _reanchor_profile(db, profile: Profile, now: datetime) -> dict[str, ob
         inserted = len(result.inserted_ids)
     return {
         "profile": profile.id, "shiftedMin": round(milliseconds / 60_000), "events": events.modified_count,
-        "exceptions": exceptions.modified_count, "qualityIssues": quality_issues.modified_count, "telemetry": {"removed": removed.deleted_count, "inserted": inserted},
+        "exceptions": exceptions.modified_count, "qualityIssues": quality_issues.modified_count, "executionOutbox": execution_outbox.modified_count, "telemetry": {"removed": removed.deleted_count, "inserted": inserted},
         "businessImpact": ((entity.get("businessImpact") or {}).get("level")),
     }
 

@@ -151,6 +151,7 @@ def test_reanchor_shifts_each_profile_and_regenerates_time_series_readings():
     report = asyncio.run(reanchor_demo(db, now=now))
     assert [item["shiftedMin"] for item in report] == [120, 120, 120]
     assert all(item["events"] == 1 and item["exceptions"] == 2 for item in report)
+    assert all(item["executionOutbox"] == 2 for item in report)
     assert all(item["telemetry"] == {"removed": 2, "inserted": 36} for item in report)
     events = db[COLLECTIONS["events"]]
     assert events.updates[0][2] == {"bypass_document_validation": True}

@@ -48,6 +48,14 @@ export const qualityIssueShiftPipeline = (ms) => [
   } },
 ];
 
+export const executionOutboxShiftPipeline = (ms) => [
+  { $set: {
+    createdAt: shift('$createdAt', ms), updatedAt: shift('$updatedAt', ms),
+    'handoff.acceptedDecision.at': shift('$handoff.acceptedDecision.at', ms),
+    audit: { $cond: [{ $isArray: '$audit' }, { $map: { input: '$audit', as: 'a', in: { $mergeObjects: ['$$a', { at: shift('$$a.at', ms) }] } } }, '$audit'] },
+  } },
+];
+
 export const entityShiftPipeline = (ms) => [
   {
     $set: {
@@ -101,6 +109,7 @@ export async function reanchorDemo(db, now = new Date()) {
     }
     const exc = await db.collection(COLL.exceptions).updateMany(scope, exceptionShiftPipeline(ms));
     const quality = await db.collection(COLL.qualityIssues).updateMany(scope, qualityIssueShiftPipeline(ms));
+    const execution = await db.collection(COLL.executionOutbox).updateMany(scope, executionOutboxShiftPipeline(ms));
     await db.collection(COLL.entities).updateMany(scope, entityShiftPipeline(ms));
     const telemetry = db.collection(COLL.telemetry);
     const removed = await telemetry.deleteMany({ 'meta.trackedEntityId': profile.entity.trackedEntityId });
@@ -112,6 +121,7 @@ export async function reanchorDemo(db, now = new Date()) {
       events: valid.modifiedCount + invalid.modifiedCount,
       exceptions: exc.modifiedCount,
       qualityIssues: quality.modifiedCount,
+      executionOutbox: execution.modifiedCount,
       telemetry: { removed: removed.deletedCount, inserted: reseeded.inserted },
       businessImpact: impact?.level ?? null,
     });

@@ -38,7 +38,7 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     with client() as test_client:
         page = test_client.get("/").text
         stylesheet = test_client.get("/static/dashboard.css")
-    for label in ("Operational overview", "Milestone risk", "Event reliability", "Data-quality queue", "Cross-domain disruption trace", "Exception workflow", "Active load portfolio", "Control tower KPIs", "Schema validation"):
+    for label in ("Operational overview", "Milestone risk", "Event reliability", "Data-quality queue", "Cross-domain disruption trace", "Exception workflow", "Governed execution handoff", "Active load portfolio", "Control tower KPIs", "Schema validation"):
         assert label in page
     assert "data-exception-action" in page
     assert "data-recommendation" in page
@@ -55,6 +55,8 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     assert "Atlas Stream Processing rollups" in page
     assert "sourceContractSummary" in page
     assert "bounded linked operational context" in page
+    assert "data-execution-action" in page
+    assert "/api/execution-outbox" in page
 
 
 def test_status_is_safe_without_a_connection_string():

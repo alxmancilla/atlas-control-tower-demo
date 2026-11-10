@@ -16,6 +16,7 @@ import { kpiSnapshot } from './services/kpis.js';
 import { portfolioOverview } from './services/portfolio.js';
 import { applyQualityIssueAction, dataQualityQueue } from './services/dataQuality.js';
 import { disruptionTrace } from './services/trace.js';
+import { applyExecutionAction, executionQueue } from './services/executionOutbox.js';
 
 export class HttpError extends StatusError {}
 
@@ -56,6 +57,7 @@ export const routes = {
   'GET /api/kpis': async ({ db, profile, query }) => kpiSnapshot(db, profile, query.fresh ? { maxAgeMs: 0 } : {}),
   'GET /api/timeline': async ({ db, profile }) => ({ events: await timeline(db, profile, invalidDocumentsFilter()) }),
   'GET /api/data-quality': async ({ db, profile }) => ({ queue: await dataQualityQueue(db, profile) }),
+  'GET /api/execution-outbox': async ({ db, profile }) => ({ queue: await executionQueue(db, profile) }),
   'POST /api/data-quality/:id/action': async ({ db, params, body }) => applyQualityIssueAction(db, params.id, body),
   'GET /api/disruption-trace': async ({ db, profile }) => ({ trace: await disruptionTrace(db, profile) }),
   'POST /api/events/sample': async ({ db, profile, body }) => triggerSample(db, profile, body.sampleId),
@@ -63,6 +65,7 @@ export const routes = {
   'GET /api/exceptions': async ({ db, profile }) => ({ queue: await exceptionQueue(db, profile), rules: profile.priority }),
   'POST /api/exceptions/:id/action': async ({ db, params, body }) => applyExceptionAction(db, params.id, body),
   'POST /api/exceptions/:id/recommendation': async ({ db, params, body }) => decideRecommendedAction(db, params.id, body),
+  'POST /api/execution-outbox/:id/action': async ({ db, profile, params, body }) => applyExecutionAction(db, profile, params.id, body),
   'GET /api/exceptions/:id/similar': async ({ db, params }) => findSimilar(db, params.id),
 
   'GET /api/telemetry': async ({ db, profile, query }) =>

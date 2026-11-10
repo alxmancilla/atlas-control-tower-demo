@@ -7,6 +7,7 @@ import { assertDemoDbName, isAtlasHost, loadConfig, redact, targetLabel } from '
 import { matchRoute } from '../../src/api.js';
 import { assessSourceContract } from '../../src/domain/sourceContract.js';
 import { qualityIssueTypes } from '../../src/services/dataQuality.js';
+import { COLL, INDEXES } from '../../src/db.js';
 
 const now = new Date('2026-01-01T12:00:00Z');
 const C = 'operational_events';
@@ -100,4 +101,6 @@ test('API routes match with path parameters', () => {
   const m = matchRoute('POST', '/api/exceptions/EXC-1A2B/action');
   assert.equal(m.params.id, 'EXC-1A2B');
   assert.equal(matchRoute('GET', '/api/exceptions/EXC-1/action'), null);
+  assert.equal(matchRoute('POST', '/api/execution-outbox/OUT-1/action').params.id, 'OUT-1');
+  assert.ok(INDEXES.some((index) => index.coll === COLL.executionOutbox && index.options.name === 'executionKey_unique'));
 });

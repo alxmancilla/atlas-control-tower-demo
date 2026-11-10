@@ -17,12 +17,13 @@ from .errors import AppError, Conflict, ServiceUnavailable
 from .events import ingest_event, reliability_summary, timeline, trigger_sample
 from .data_quality import apply_quality_issue_action, data_quality_queue
 from .exceptions import apply_exception_action, decide_recommended_action, exception_queue
+from .execution_outbox import apply_execution_action, execution_queue
 from .profiles import PROFILES, get_profile
 from .maintenance import maintenance_state, with_maintenance
 from .readiness import demo_clock_age, initialization_status
 from .reanchor import reanchor_demo
 from .search import find_similar, run_search, search_status
-from .schemas import DataQualityActionInput, DocumentIdInput, EventInput, ExceptionActionInput, RecommendationDecisionInput, SampleEventInput, TelemetryReadingInput, ValidationSampleInput, ValidationStageInput
+from .schemas import DataQualityActionInput, DocumentIdInput, EventInput, ExceptionActionInput, ExecutionActionInput, RecommendationDecisionInput, SampleEventInput, TelemetryReadingInput, ValidationSampleInput, ValidationStageInput
 from .security import dashboard_security_headers, guard_write_request
 from .services import entity_overview, kpi_snapshot, portfolio_overview
 from .telemetry import add_reading, telemetry_view
@@ -165,6 +166,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         selected = profile_from_query(profile)
         return {"queue": await data_quality_queue(await view_ready(request), selected)}
 
+    @app.get("/api/execution-outbox")
+    async def get_execution_outbox(request: Request, profile: str | None = None):
+        selected = profile_from_query(profile)
+        return {"queue": await execution_queue(await view_ready(request), selected)}
+
     @app.get("/api/disruption-trace")
     async def get_disruption_trace(request: Request, profile: str | None = None):
         trace = await disruption_trace(await view_ready(request), profile_from_query(profile))
@@ -246,6 +252,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def post_recommendation_decision(request: Request, exception_id: str, body: RecommendationDecisionInput, profile: str | None = None):
         selected = profile_from_query(profile)
         return await decide_recommended_action(await write_ready(request, selected), exception_id, body.model_dump())
+
+    @app.post("/api/execution-outbox/{execution_id}/action")
+    async def post_execution_action(request: Request, execution_id: str, body: ExecutionActionInput, profile: str | None = None):
+        selected = profile_from_query(profile)
+        return await apply_execution_action(await write_ready(request, selected), selected, execution_id, body.model_dump())
 
     return app
 

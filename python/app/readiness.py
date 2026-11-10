@@ -11,6 +11,7 @@ INDEXES = {
     "events": {"entity_eventTime", "entity_milestone_eventTime", "idempotencyKey_unique", "profile_receivedAt"},
     "exceptions": {"exceptionId_unique", "exceptionKey_unique", "profile_status_sla", "entity_status"},
     "quality_issues": {"issueKey_unique", "profile_entity_status_priority"},
+    "execution_outbox": {"executionKey_unique", "profile_entity_status_updated"},
     "positions": {"location_item_unique"},
     "telemetry": {"meta_entity_metric_ts"},
     "telemetry_rollups": {"profile_sensor_metric_window_unique"},
