@@ -7,6 +7,7 @@ from pymongo import ReturnDocument
 
 from .db import COLLECTIONS
 from .errors import BadRequest, Conflict, NotFound
+from .serialization import json_safe
 
 AUDIT_MAX = 100
 _TRANSITIONS = {
@@ -66,7 +67,7 @@ async def create_execution_request(db, *, profile: str, exception: dict, action:
 
 async def execution_queue(db, profile) -> list[dict]:
     cursor = db[COLLECTIONS["execution_outbox"]].find({"profile": profile.id, "trackedEntityId": profile.entity_id}).sort([("updatedAt", -1)])
-    return [item async for item in cursor]
+    return [json_safe(item) async for item in cursor]
 
 
 async def apply_execution_action(db, profile, execution_id: str, payload: dict) -> dict:
@@ -88,4 +89,4 @@ async def apply_execution_action(db, profile, execution_id: str, payload: dict) 
     )
     if not result:
         raise Conflict("The execution request changed while you were working on it. Refresh and retry.")
-    return result
+    return json_safe(result)

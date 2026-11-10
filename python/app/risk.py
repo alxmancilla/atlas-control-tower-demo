@@ -11,8 +11,9 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def assess_milestones(plan: list[dict], now: datetime, risk: dict[str, int]) -> dict[str, object]:
+def assess_milestones(plan: list[dict], now: datetime, risk: dict[str, int], *, final_arrival_adjustment_min: int = 0) -> dict[str, object]:
     now = _as_utc(now)
+    final_arrival_adjustment_min = max(0, final_arrival_adjustment_min)
     completed = [index for index, milestone in enumerate(plan) if milestone.get("actualTime")]
     last_completed_index = completed[-1] if completed else -1
     carry_late_min, previous_actual, previous_label, dwell_checked = 0, None, None, False
@@ -34,7 +35,8 @@ def assess_milestones(plan: list[dict], now: datetime, risk: dict[str, int]) -> 
             milestones.append(result)
             continue
         overdue = _minutes_between(now, planned)
-        result["projectedTime"] = planned + timedelta(minutes=carry_late_min)
+        forecast_delay_min = carry_late_min + (final_arrival_adjustment_min if index == len(plan) - 1 else 0)
+        result["projectedTime"] = planned + timedelta(minutes=forecast_delay_min)
         if index < last_completed_index:
             result.update(status="missed", reasons=["A later milestone is complete but no event was received for this one"])
         elif overdue > risk["missedGraceMin"]:
@@ -47,6 +49,9 @@ def assess_milestones(plan: list[dict], now: datetime, risk: dict[str, int]) -> 
             if carry_late_min > risk["onTimeToleranceMin"]:
                 result["status"] = "at_risk"
                 result["reasons"].append(f"Projected {carry_late_min} min late: upstream lateness carried forward")
+            if index == len(plan) - 1 and final_arrival_adjustment_min:
+                result["status"] = "at_risk"
+                result["reasons"].append(f"Carrier ETA revision adds {final_arrival_adjustment_min} min to the final arrival forecast")
         if not dwell_checked and previous_actual and milestone.get("maxDwellMin"):
             dwell_checked = True
             dwell = _minutes_between(now, previous_actual)

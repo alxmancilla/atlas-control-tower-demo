@@ -36,7 +36,8 @@ def test_health_and_profile_discovery_do_not_need_a_database():
 
 def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     with client() as test_client:
-        page = test_client.get("/").text
+        dashboard = test_client.get("/")
+        page = dashboard.text
         stylesheet = test_client.get("/static/dashboard.css")
     for label in ("Operational overview", "Milestone risk", "Event reliability", "Data-quality queue", "Cross-domain disruption trace", "Exception workflow", "Governed execution handoff", "Active load portfolio", "Control tower KPIs", "Schema validation"):
         assert label in page
@@ -44,7 +45,8 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     assert "data-recommendation" in page
     assert "data-quality-action" in page
     assert "data-repair" in page
-    assert 'href="/static/dashboard.css"' in page
+    assert 'href="/static/dashboard.css?v=20261110"' in page
+    assert dashboard.headers["cache-control"] == "no-store"
     assert stylesheet.headers["content-type"].startswith("text/css")
     assert "const esc=" in page
     assert "AbortController" in page
@@ -56,6 +58,9 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     assert "bounded linked operational context" in page
     assert "data-execution-action" in page
     assert "/api/execution-outbox" in page
+    assert "Re-anchor demo clock" in page
+    assert "window.confirm" in page
+    assert "'/api/reanchor'" in page
 
 
 def test_status_is_safe_without_a_connection_string():

@@ -55,6 +55,15 @@ def _entity(profile: Profile, spec: dict, anchor: datetime) -> dict:
     return {"trackedEntityId": profile.entity_id, "profile": profile.id, **data, "orderLines": lines, "plannedMilestones": [{"milestoneId": ident, "label": label, "sequence": index, "source": source, "plannedTime": _at(anchor, offset), "maxDwellMin": dwell} for index, (ident, label, source, offset, dwell) in enumerate(spec["milestones"], 1)], "crossDomain": {"traceId": trace_id, "scenario": scenario, "nodes": [{"domain": domain, "id": ident, "label": label, "relation": relation, "state": state} for domain, ident, label, relation, state in nodes]}, "anchorAt": anchor, "demo": {"seeded": True}}
 
 
+async def _backfill_cross_domain_trace(entity_coll, entity: dict) -> bool:
+    """Add the later trace fixture to legacy primary demo entities without replacing data."""
+    result = await entity_coll.update_one(
+        {"trackedEntityId": entity["trackedEntityId"], "crossDomain": {"$exists": False}},
+        {"$set": {"crossDomain": entity["crossDomain"]}},
+    )
+    return bool(result.modified_count)
+
+
 async def ensure_setup(db) -> dict:
     cursor = await db.list_collections()
     existing = {item["name"]: item for item in [row async for row in cursor]}
@@ -86,6 +95,7 @@ async def _seed_profile(db, profile: Profile, anchor: datetime) -> dict:
     spec, entity_coll = _SEEDS[profile.id], db[COLLECTIONS["entities"]]
     entity = _entity(profile, spec, anchor)
     inserted = await entity_coll.update_one({"trackedEntityId": profile.entity_id}, {"$setOnInsert": entity}, upsert=True)
+    trace_backfilled = await _backfill_cross_domain_trace(entity_coll, entity)
     entity = await entity_coll.find_one({"trackedEntityId": profile.entity_id}, {"anchorAt": 1})
     anchor = entity["anchorAt"]
     data = spec["entity"]
@@ -143,6 +153,7 @@ async def _seed_profile(db, profile: Profile, anchor: datetime) -> dict:
     return {
         "profile": profile.id,
         "entity": "created" if inserted.upserted_id else "existing",
+        "crossDomainTrace": "backfilled" if trace_backfilled else "present",
         "portfolio": {"entities": portfolio_entities, "exceptions": portfolio_exceptions},
         "events": events,
         "history": {"added": history_added, "total": len(spec["history"])},

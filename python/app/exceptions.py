@@ -4,13 +4,13 @@ from datetime import datetime, timedelta, timezone
 import re
 from uuid import uuid4
 
-from bson import ObjectId
 from pymongo import ReturnDocument
 
 from .db import COLLECTIONS
 from .errors import BadRequest, Conflict, NotFound
 from .execution_outbox import create_execution_request
 from .profiles import Profile
+from .serialization import json_safe
 
 
 AUDIT_MAX = 100
@@ -96,7 +96,7 @@ async def apply_exception_action(db, exception_id: str, payload: dict) -> dict:
     result = await coll.find_one_and_update({"exceptionId": exception_id, "status": {"$in": list(_ACTION_STATES[action])}}, {"$set": set_doc, "$push": _audit({"at": now, "action": action, "by": by, "note": note, "owner": owner})}, return_document=ReturnDocument.AFTER)
     if not result:
         raise Conflict("The exception changed while you were working on it. Refresh and retry.")
-    return _json_safe(result)
+    return json_safe(result)
 
 
 async def decide_recommended_action(db, exception_id: str, payload: dict) -> dict:
@@ -127,7 +127,7 @@ async def decide_recommended_action(db, exception_id: str, payload: dict) -> dic
         if not result:
             raise Conflict("The recommendation changed while you were working on it. Refresh and retry.")
         execution = await create_execution_request(db, profile=current["profile"], exception=current, action=action, decision=record, now=now, session=session) if decision == "accepted" else None
-        return _json_safe({**result, "execution": execution} if execution else result)
+        return json_safe({**result, "execution": execution} if execution else result)
 
     if decision != "accepted":
         return await apply()
@@ -135,16 +135,6 @@ async def decide_recommended_action(db, exception_id: str, payload: dict) -> dic
         return await session.with_transaction(lambda inner_session: apply(inner_session))
 
 
-def _json_safe(value):
-    if isinstance(value, ObjectId):
-        return str(value)
-    if isinstance(value, dict):
-        return {key: _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_json_safe(item) for item in value]
-    return value
-
-
 async def exception_queue(db, profile: Profile) -> list[dict]:
     cursor = db[COLLECTIONS["exceptions"]].find({"profile": profile.id, "trackedEntityId": profile.entity_id}).sort([("status", 1), ("slaDueAt", 1)])
-    return [_json_safe(item) async for item in cursor]
+    return [json_safe(item) async for item in cursor]

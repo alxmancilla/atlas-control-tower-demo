@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.impact import assess_load_impact, recompute_impact, recommend_actions
 from app.profiles import get_profile
+from app.risk import assess_milestones
 
 
 NOW = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
@@ -27,6 +28,21 @@ def test_per_stop_impact_and_recommendations_clear_when_final_milestone_complete
     restored = assess_load_impact(assessment(received=True), LINES, positions, NOW, config)
     assert restored["level"] == "none"
     assert recommend_actions(restored) == []
+
+
+def test_eta_revision_moves_final_forecast_and_creates_a_shortfall_recommendation():
+    plan = [
+        {"id": "departed", "label": "Departed", "plannedTime": NOW, "actualTime": NOW},
+        {"id": "received", "label": "Received", "plannedTime": NOW + timedelta(hours=2), "actualTime": None},
+    ]
+    assessed = assess_milestones(plan, NOW, get_profile("retail").risk, final_arrival_adjustment_min=120)
+    final = assessed["milestones"][-1]
+    assert final["projectedTime"] == NOW + timedelta(hours=4)
+    assert "Carrier ETA revision adds 120 min to the final arrival forecast" in final["reasons"]
+    positions = [{"locationId": "STORE-1", "itemRef": "SKU-1", "onHand": 20, "consumptionPerHour": 10, "unit": "cases"}, {"locationId": "STORE-2", "itemRef": "SKU-1", "onHand": 100, "consumptionPerHour": 10, "unit": "cases"}]
+    impact = assess_load_impact(assessed, LINES, positions, NOW, get_profile("retail").impact)
+    assert impact["level"] == "critical"
+    assert recommend_actions(impact)[0]["actionId"] == "stop_1"
 
 
 class Cursor:

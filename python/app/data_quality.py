@@ -8,6 +8,7 @@ from pymongo import ReturnDocument
 from .db import COLLECTIONS
 from .errors import BadRequest, Conflict, NotFound
 from .profiles import Profile
+from .serialization import json_safe
 
 AUDIT_MAX = 100
 ISSUE_TYPES = {
@@ -51,7 +52,7 @@ async def upsert_quality_issues(db, profile: Profile, event: dict, session=None)
 
 async def data_quality_queue(db, profile: Profile) -> list[dict]:
     cursor = db[COLLECTIONS["quality_issues"]].find({"profile": profile.id, "trackedEntityId": profile.entity_id}).sort([("status", 1), ("severity", -1), ("updatedAt", -1)])
-    return [item async for item in cursor]
+    return [json_safe(item) async for item in cursor]
 
 
 async def apply_quality_issue_action(db, issue_id: str, payload: dict) -> dict:
@@ -78,4 +79,4 @@ async def apply_quality_issue_action(db, issue_id: str, payload: dict) -> dict:
     result = await coll.find_one_and_update({"issueId": issue_id, "status": {"$ne": "resolved"}}, {"$set": set_doc, "$push": {"audit": {"$each": [{"at": now, "action": action, "by": by, "note": note or None}], "$slice": -AUDIT_MAX}}}, return_document=ReturnDocument.AFTER)
     if not result:
         raise Conflict("The data-quality issue changed while you were working on it. Refresh and retry.")
-    return result
+    return json_safe(result)

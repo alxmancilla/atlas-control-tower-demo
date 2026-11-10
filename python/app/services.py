@@ -9,6 +9,14 @@ from .profiles import Profile
 from .risk import assess_milestones
 
 KPI_MAX_AGE_SECONDS = 15
+MAX_ETA_REVISION_MIN = 24 * 60
+
+
+def _eta_revision(event: dict | None) -> int:
+    value = (event or {}).get("details", {}).get("etaRevisionMin")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value) if 0 < value <= MAX_ETA_REVISION_MIN else 0
 
 
 async def portfolio_overview(db, profile: Profile) -> dict[str, object]:
@@ -48,7 +56,8 @@ async def entity_overview(db, profile: Profile, now: datetime | None = None) -> 
         {"$match": {"trackedEntityId": profile.entity_id, "profile": profile.id}},
         {"$lookup": {"from": COLLECTIONS["events"], "localField": "trackedEntityId", "foreignField": "trackedEntityId", "pipeline": [{"$match": {"milestoneId": {"$type": "string"}, "eventTime": {"$type": "date"}}}, {"$sort": {"eventTime": 1}}, {"$group": {"_id": "$milestoneId", "actualTime": {"$first": "$eventTime"}, "actualSource": {"$first": "$source"}, "reports": {"$sum": 1}}}], "as": "actuals"}},
         {"$lookup": {"from": COLLECTIONS["exceptions"], "localField": "trackedEntityId", "foreignField": "trackedEntityId", "pipeline": [{"$match": {"status": {"$ne": "resolved"}}}, {"$group": {"_id": "$severity", "n": {"$sum": 1}}}], "as": "openExceptions"}},
-        {"$project": {"_id": 0, "trackedEntityId": 1, "entityKind": 1, "product": 1, "origin": 1, "destination": 1, "metadata": 1, "orderLines": 1, "anchorAt": 1, "plannedMilestones": 1, "actuals": 1, "openExceptions": 1, "businessImpact": 1}},
+        {"$lookup": {"from": COLLECTIONS["events"], "let": {"entityId": "$trackedEntityId"}, "pipeline": [{"$match": {"$expr": {"$eq": ["$trackedEntityId", "$$entityId"]}, "details.etaRevisionMin": {"$type": "number", "$gt": 0, "$lte": MAX_ETA_REVISION_MIN}}}, {"$sort": {"eventTime": -1, "receivedAt": -1}}, {"$limit": 1}, {"$project": {"_id": 0, "details.etaRevisionMin": 1, "source": 1, "eventTime": 1}}], "as": "etaRevisionEvents"}},
+        {"$project": {"_id": 0, "trackedEntityId": 1, "entityKind": 1, "product": 1, "origin": 1, "destination": 1, "metadata": 1, "orderLines": 1, "anchorAt": 1, "plannedMilestones": 1, "actuals": 1, "openExceptions": 1, "etaRevisionEvents": 1, "businessImpact": 1}},
     ]
     cursor = await db[COLLECTIONS["entities"]].aggregate(pipeline)
     rows = [row async for row in cursor]
@@ -59,7 +68,8 @@ async def entity_overview(db, profile: Profile, now: datetime | None = None) -> 
     milestones = [{"id": planned["milestoneId"], "label": planned["label"], "sequence": planned["sequence"], "source": planned["source"], "plannedTime": planned["plannedTime"], "maxDwellMin": planned.get("maxDwellMin"), "actualTime": actuals.get(planned["milestoneId"], {}).get("actualTime"), "actualSource": actuals.get(planned["milestoneId"], {}).get("actualSource"), "reports": actuals.get(planned["milestoneId"], {}).get("reports", 0)} for planned in sorted(doc["plannedMilestones"], key=lambda item: item["sequence"])]
     latest = next((item for item in reversed(milestones) if item["actualTime"]), None)
     evaluated_at = now or datetime.now(timezone.utc)
-    return {"entity": {key: doc.get(key) for key in ("trackedEntityId", "entityKind", "product", "origin", "destination", "metadata", "orderLines", "anchorAt")}, "latestReliableMilestone": latest, "openExceptionCount": sum(item["n"] for item in doc["openExceptions"]), "openExceptionsBySeverity": {item["_id"]: item["n"] for item in doc["openExceptions"]}, "businessImpact": doc.get("businessImpact"), "assessment": assess_milestones(milestones, evaluated_at, profile.risk), "evaluatedAt": evaluated_at}
+    eta_revision = _eta_revision(next(iter(doc.get("etaRevisionEvents") or []), None))
+    return {"entity": {key: doc.get(key) for key in ("trackedEntityId", "entityKind", "product", "origin", "destination", "metadata", "orderLines", "anchorAt")}, "latestReliableMilestone": latest, "openExceptionCount": sum(item["n"] for item in doc["openExceptions"]), "openExceptionsBySeverity": {item["_id"]: item["n"] for item in doc["openExceptions"]}, "businessImpact": doc.get("businessImpact"), "assessment": assess_milestones(milestones, evaluated_at, profile.risk, final_arrival_adjustment_min=eta_revision), "evaluatedAt": evaluated_at}
 
 
 def _rate_expr(part, whole) -> dict:

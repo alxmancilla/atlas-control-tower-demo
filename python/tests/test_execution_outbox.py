@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytest
+from bson import ObjectId
 
 from app.errors import BadRequest, Conflict
 from app.execution_outbox import apply_execution_action, build_execution_request, check_execution_action, execution_key_for
@@ -65,9 +66,11 @@ class OutboxDatabase:
 
 def test_simulated_submit_updates_audited_state_without_external_connector():
     request = build_execution_request(profile="retail", exception=EXCEPTION, action=ACTION, decision=DECISION, now=NOW)
+    request["_id"] = ObjectId()
     db = OutboxDatabase(request)
     updated = asyncio.run(apply_execution_action(db, get_profile("retail"), request["executionId"], {"action": "submit", "operator": "alex"}))
     assert updated["status"] == "submitted"
+    assert updated["_id"] == str(request["_id"])
     assert updated["submissionCount"] == 1
     assert updated["audit"][-1]["action"] == "submit"
     assert "no external system was called" in updated["audit"][-1]["note"]

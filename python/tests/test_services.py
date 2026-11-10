@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.profiles import get_profile
 from app.risk import assess_milestones
-from app.services import KPI_MAX_AGE_SECONDS, kpi_pipeline, kpi_snapshot, portfolio_overview
+from app.services import KPI_MAX_AGE_SECONDS, _eta_revision, entity_overview, kpi_pipeline, kpi_snapshot, portfolio_overview
 
 
 class AsyncCursor:
@@ -46,6 +46,53 @@ def test_milestone_assessment_accepts_pymongo_naive_utc_dates():
     plan = [{"id": "arrived", "label": "Arrived", "plannedTime": (now - timedelta(minutes=5)).replace(tzinfo=None), "actualTime": None}]
     result = assess_milestones(plan, now, {"onTimeToleranceMin": 15, "missedGraceMin": 30, "atRiskWindowMin": 45})
     assert result["riskLevel"] == "medium"
+
+
+def test_eta_revision_accepts_only_bounded_positive_numeric_values():
+    assert _eta_revision({"details": {"etaRevisionMin": 120}}) == 120
+    assert _eta_revision({"details": {"etaRevisionMin": 0}}) == 0
+    assert _eta_revision({"details": {"etaRevisionMin": 1441}}) == 0
+    assert _eta_revision({"details": {"etaRevisionMin": True}}) == 0
+
+
+class OverviewCollection:
+    def __init__(self, row):
+        self.row = row
+        self.pipeline = None
+
+    async def aggregate(self, pipeline):
+        self.pipeline = pipeline
+        return AsyncCursor([self.row])
+
+
+class OverviewDatabase:
+    def __init__(self, row):
+        self.collection = OverviewCollection(row)
+
+    def __getitem__(self, name):
+        assert name == "tracked_entities"
+        return self.collection
+
+
+def test_entity_overview_applies_latest_eta_revision_to_final_forecast():
+    now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    db = OverviewDatabase({
+        "trackedEntityId": "RTL-SHP-24017",
+        "entityKind": "replenishment_shipment",
+        "product": {}, "origin": {}, "destination": {}, "metadata": {}, "orderLines": [], "anchorAt": now,
+        "plannedMilestones": [
+            {"milestoneId": "departed", "label": "Departed", "sequence": 1, "source": "carrier", "plannedTime": now, "maxDwellMin": None},
+            {"milestoneId": "received", "label": "Received", "sequence": 2, "source": "store_receiving", "plannedTime": now + timedelta(hours=2), "maxDwellMin": None},
+        ],
+        "actuals": [{"_id": "departed", "actualTime": now, "actualSource": "carrier", "reports": 1}],
+        "openExceptions": [],
+        "etaRevisionEvents": [{"details": {"etaRevisionMin": 120}, "source": "carrier", "eventTime": now}],
+        "businessImpact": None,
+    })
+    result = asyncio.run(entity_overview(db, get_profile("retail"), now=now))
+    final = result["assessment"]["milestones"][-1]
+    assert final["projectedTime"] == now + timedelta(hours=4)
+    assert any("etaRevisionMin" in str(stage) for stage in db.collection.pipeline)
 
 
 class SnapshotCollection:

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 
-from app.data_quality import quality_issue_types, upsert_quality_issues
+from app.data_quality import data_quality_queue, quality_issue_types, upsert_quality_issues
 from app.profiles import get_profile
 from app.source_contract import assess_source_contract
 from app.trace import disruption_trace
@@ -88,6 +88,30 @@ class Cursor:
             return next(self.rows)
         except StopIteration as error:
             raise StopAsyncIteration from error
+
+
+class QualityIssueCollection:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def find(self, query):
+        assert query == {"profile": "retail", "trackedEntityId": "RTL-SHP-24017"}
+        return Cursor(self.rows)
+
+
+class QualityIssueQueueDatabase:
+    def __init__(self, rows):
+        self.collection = QualityIssueCollection(rows)
+
+    def __getitem__(self, name):
+        assert name == "data_quality_issues"
+        return self.collection
+
+
+def test_data_quality_queue_converts_nested_object_ids_for_json_responses():
+    document_id, event_id = ObjectId(), ObjectId()
+    queue = asyncio.run(data_quality_queue(QualityIssueQueueDatabase([{"_id": document_id, "eventId": event_id, "audit": [{"eventId": event_id}]}]), get_profile("retail")))
+    assert queue == [{"_id": str(document_id), "eventId": str(event_id), "audit": [{"eventId": str(event_id)}]}]
 
 
 class TraceDatabase:

@@ -33,6 +33,7 @@ from .validation import insert_invalid_sample, insert_valid_probe, remove_invali
 
 UI_PATH = Path(__file__).parent / "static" / "index.html"
 STATIC_PATH = UI_PATH.parent
+DASHBOARD_ASSET_VERSION = "20261110"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -74,8 +75,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/", include_in_schema=False)
     async def dashboard():
         nonce = token_urlsafe(24)
-        page = UI_PATH.read_text(encoding="utf-8").replace("<script>", f'<script nonce="{nonce}">', 1)
-        return HTMLResponse(page, headers=dashboard_security_headers(nonce))
+        page = UI_PATH.read_text(encoding="utf-8").replace('href="/static/dashboard.css"', f'href="/static/dashboard.css?v={DASHBOARD_ASSET_VERSION}"', 1).replace("<script>", f'<script nonce="{nonce}">', 1)
+        return HTMLResponse(page, headers={**dashboard_security_headers(nonce), "Cache-Control": "no-store"})
 
     @app.get("/api/status")
     async def status(request: Request):

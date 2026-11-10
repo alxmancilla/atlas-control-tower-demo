@@ -6,7 +6,7 @@ from app.cli import arguments
 from app.db import COLLECTIONS
 from app.profiles import get_profile
 from app.search import create_search_indexes
-from app.setup import _backfill_quality_issues, ensure_setup, reset_demo
+from app.setup import _backfill_cross_domain_trace, _backfill_quality_issues, ensure_setup, reset_demo
 
 
 class Cursor:
@@ -24,8 +24,9 @@ class Cursor:
 
 
 class Result:
-    def __init__(self, upserted_id=None):
+    def __init__(self, upserted_id=None, modified_count=0):
         self.upserted_id = upserted_id
+        self.modified_count = modified_count
 
 
 class Collection:
@@ -122,6 +123,17 @@ def test_quality_backfill_opens_only_new_work_items(monkeypatch):
     db[COLLECTIONS["events"]].events = [{"_id": "one"}, {"_id": "two"}]
     assert asyncio.run(_backfill_quality_issues(db, get_profile("retail"))) == 2
     assert opened == ["one", "two"]
+
+
+def test_setup_backfills_only_a_missing_cross_domain_trace_fixture():
+    class EntityCollection:
+        async def update_one(self, query, update):
+            assert query == {"trackedEntityId": "RTL-SHP-24017", "crossDomain": {"$exists": False}}
+            assert update == {"$set": {"crossDomain": {"traceId": "RTL-BERRIES-ETA-01"}}}
+            return Result(modified_count=1)
+
+    entity = {"trackedEntityId": "RTL-SHP-24017", "crossDomain": {"traceId": "RTL-BERRIES-ETA-01"}}
+    assert asyncio.run(_backfill_cross_domain_trace(EntityCollection(), entity)) is True
 
 
 def test_python_admin_cli_parses_reset_confirmation_and_search_opt_out():
