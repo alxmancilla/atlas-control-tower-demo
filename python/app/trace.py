@@ -17,7 +17,7 @@ async def disruption_trace(db, profile: Profile) -> dict | None:
     if trace_id:
         cursor = db[COLLECTIONS["events"]].find(
             {"profile": profile.id, "trackedEntityId": profile.entity_id, "details.crossDomainTrace": trace_id},
-            {"_id": 0, "source": 1, "description": 1, "eventTime": 1, "receivedAt": 1, "reliability": 1, "details": 1},
+            {"_id": 0, "source": 1, "description": 1, "eventTime": 1, "receivedAt": 1, "reliability": 1, "sourceContract": 1, "details": 1},
         ).sort([("eventTime", 1)])
         signals = [item async for item in cursor]
     return {"entity": entity, "trace": entity.get("crossDomain"), "signals": signals}

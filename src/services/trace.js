@@ -9,7 +9,7 @@ export async function disruptionTrace(db, profile) {
   if (!entity) return null;
   const traceId = entity.crossDomain?.traceId;
   const signals = traceId
-    ? await db.collection(COLL.events).find({ profile: profile.id, trackedEntityId: entity.trackedEntityId, 'details.crossDomainTrace': traceId }, { projection: { _id: 0, source: 1, description: 1, eventTime: 1, receivedAt: 1, reliability: 1, details: 1 } }).sort({ eventTime: 1 }).toArray()
+    ? await db.collection(COLL.events).find({ profile: profile.id, trackedEntityId: entity.trackedEntityId, 'details.crossDomainTrace': traceId }, { projection: { _id: 0, source: 1, description: 1, eventTime: 1, receivedAt: 1, reliability: 1, sourceContract: 1, details: 1 } }).sort({ eventTime: 1 }).toArray()
     : [];
   return { entity, trace: entity.crossDomain ?? null, signals };
 }

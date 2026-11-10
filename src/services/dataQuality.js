@@ -10,6 +10,7 @@ const ISSUE_TYPES = {
   milestone_earlier_report: { label: 'Earlier milestone report', severity: 'medium' },
   milestone_already_recorded: { label: 'Repeated milestone report', severity: 'low' },
   duplicate_suppressed: { label: 'Duplicate source event suppressed', severity: 'low' },
+  source_contract_incomplete: { label: 'Source contract incomplete', severity: 'high' },
 };
 
 const clean = (value) => (typeof value === 'string' ? value.trim().slice(0, 500) : '');
@@ -19,6 +20,7 @@ export function qualityIssueTypes(event) {
   const flags = event.reliability?.flags ?? [];
   const types = flags.filter((flag) => ISSUE_TYPES[flag]);
   if ((event.reliability?.duplicateCount ?? 0) > 0) types.push('duplicate_suppressed');
+  if (event.sourceContract?.mappingStatus === 'incomplete') types.push('source_contract_incomplete');
   return [...new Set(types)];
 }
 
@@ -46,7 +48,7 @@ export async function upsertQualityIssues(db, profile, event, { session } = {}) 
         createdAt: now,
         audit: [{ at: now, action: 'opened', by: `source:${event.source}`, note: config.label, eventId: event._id }],
       },
-      $set: { status: 'open', resolution: null, reliability, updatedAt: now, observedCount: reliability.duplicateCount || 1 },
+      $set: { status: 'open', resolution: null, reliability, sourceContract: event.sourceContract ?? null, updatedAt: now, observedCount: reliability.duplicateCount || 1 },
     };
     const result = await db.collection(COLL.qualityIssues).updateOne({ issueKey }, update, { upsert: true, session });
     issues.push({ issueKey, issueType: type, outcome: result.upsertedCount ? 'opened' : 'updated' });

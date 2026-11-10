@@ -12,6 +12,7 @@ from .exceptions import open_or_update_exception
 from .data_quality import upsert_quality_issues
 from .profiles import Profile, Sample
 from .schemas import EventInput
+from .source_contract import assess_source_contract
 
 EVENT_ENVELOPE_SCHEMA = {
     "bsonType": "object",
@@ -99,6 +100,9 @@ async def _insert_new(db, profile: Profile, event: dict, session) -> dict:
     if event.get("milestoneId"):
         first = await events.find_one({"trackedEntityId": event["trackedEntityId"], "milestoneId": event["milestoneId"], "eventTime": {"$type": "date"}}, {"eventTime": 1}, sort=[("eventTime", 1)], session=session)
     event["reliability"] = classify_arrival(event["eventTime"], event["receivedAt"], latest.get("eventTime") if latest else None, first.get("eventTime") if first else None, profile.risk)
+    source_contract = assess_source_contract(profile, event)
+    if source_contract:
+        event["sourceContract"] = source_contract
     result = await events.insert_one(event, session=session)
     event["_id"] = result.inserted_id
     exception = await open_or_update_exception(db, profile, event, session) if event.get("exception") else None

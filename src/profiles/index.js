@@ -34,6 +34,12 @@ export function validateProfile(p) {
   for (const [id, s] of Object.entries(p.sources || {})) {
     if (s.channel && !CHANNELS.includes(s.channel)) errors.push(`source ${id} uses unknown channel ${s.channel}`);
   }
+  for (const [source, contract] of Object.entries(p.sourceContracts || {})) {
+    if (!sources.includes(source)) errors.push(`source contract uses unknown source ${source}`);
+    if (!(Number.isInteger(contract.version) && contract.version > 0)) errors.push(`source contract ${source} needs a positive integer version`);
+    if (!(contract.freshnessTargetMin > 0)) errors.push(`source contract ${source} needs a positive freshness target`);
+    if (!Array.isArray(contract.requiredCorrelationKeys) || !contract.requiredCorrelationKeys.length) errors.push(`source contract ${source} needs correlation keys`);
+  }
   for (const e of events) {
     if (!sources.includes(e.source)) errors.push(`event ${e.sourceEventId} uses unknown source ${e.source}`);
     if (e.channel && !CHANNELS.includes(e.channel)) errors.push(`event ${e.sourceEventId} uses unknown channel ${e.channel}`);
@@ -96,6 +102,7 @@ export function profileSummary(p) {
     vocabulary: p.vocabulary,
     entity: p.entity,
     sources: p.sources,
+    sourceContracts: p.sourceContracts ?? {},
     milestones: p.milestones.map(({ id, label, source }) => ({ id, label, source })),
     risk: p.risk,
     exceptionCategories: p.exceptionCategories,

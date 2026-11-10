@@ -31,6 +31,7 @@ def test_health_and_profile_discovery_do_not_need_a_database():
         assert profiles["defaultProfile"] == "retail"
         assert [profile["id"] for profile in profiles["profiles"]] == ["retail", "healthcare", "manufacturing"]
         assert profiles["profiles"][0]["samples"][0]["id"] == "arrived_dc"
+        assert profiles["profiles"][0]["sourceContracts"]["berry_supplier"]["version"] == 1
 
 
 def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
@@ -52,6 +53,8 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     assert "sessionStorage" in page
     assert "Some dashboard sections are unavailable" in page
     assert "Atlas Stream Processing rollups" in page
+    assert "sourceContractSummary" in page
+    assert "bounded linked operational context" in page
 
 
 def test_status_is_safe_without_a_connection_string():

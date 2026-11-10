@@ -46,6 +46,9 @@ export default {
     courier: { label: 'Courier dispatch app', channel: 'api' },
     receiving_lab: { label: 'Facility receiving desk', channel: 'manual' },
   },
+  sourceContracts: {
+    reagent_supplier: { version: 1, freshnessTargetMin: 20, requiredCorrelationKeys: ['transferOrder', 'supplierId'] },
+  },
   milestones: [
     { id: 'released', label: 'Released by hub', source: 'supply_hub', plannedOffsetMin: -180, maxDwellMin: 45 },
     { id: 'dispatched', label: 'Dispatched', source: 'courier', plannedOffsetMin: -150, maxDwellMin: 45 },
@@ -135,6 +138,10 @@ export default {
       notes: 'Seal intact, custody signed', details: { courierId: 'CUR-9', vehicle: 'BIKE-3', sealId: 'SEAL-5541',
         raw: { event: 'custody.transferred', transferOrder: 'TO-55021', from: 'CUR-6', to: 'CUR-9', seal: 'SEAL-5541', at: '{{iso}}' } } },
     { id: 'handoff_resend', label: 'Courier: resend handoff (duplicate)', duplicateOf: 'handoff' },
+    { id: 'supplier_contract_gap', label: 'Supplier: update missing transfer-order correlation', source: 'reagent_supplier', eventType: 'status_note',
+      sourceEventId: 'SUP-MAP-55021', eventTimeOffsetMin: 0, description: 'Supplier release update received without the transfer-order correlation key',
+      notes: 'Synthetic contract-gap demonstration; operational data only', details: { supplierId: 'SUP-REAGENT-17', releaseDelayMin: 90,
+        raw: { type: 'supplier.release_revised', supplier: 'SUP-REAGENT-17', delayMinutes: 90, sentAt: '{{iso}}' } } },
     { id: 'late_dispatch_scan', label: 'Hub: dispatch scan uploaded 2.5h late', source: 'supply_hub', eventType: 'milestone',
       milestoneId: 'dispatched', sourceEventId: 'HUB-DSP-2290', eventTimeOffsetMin: -150,
       description: 'Loading bay scan synced after network outage', notes: 'Bay scanner reconnected',

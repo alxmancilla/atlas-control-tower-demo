@@ -5,6 +5,8 @@ import { buildEvent, buildInvalidEvent, buildPortfolioEntities, buildPortfolioEx
 import { PROFILE_IDS, getProfile, validateProfile } from '../../src/profiles/index.js';
 import { assertDemoDbName, isAtlasHost, loadConfig, redact, targetLabel } from '../../src/config.js';
 import { matchRoute } from '../../src/api.js';
+import { assessSourceContract } from '../../src/domain/sourceContract.js';
+import { qualityIssueTypes } from '../../src/services/dataQuality.js';
 
 const now = new Date('2026-01-01T12:00:00Z');
 const C = 'operational_events';
@@ -58,7 +60,15 @@ test('every profile is structurally valid and builds envelope documents', () => 
     assert.equal(entity.crossDomain.nodes.length, 4, `${id} cross-domain topology`);
     assert.ok(signal, `${id} trace-linked source signal`);
     assert.ok(signal.receivedAtOffsetMin - signal.eventTimeOffsetMin > profile.risk.lateArrivalMin, `${id} signal is late`);
+    const mapped = assessSourceContract(profile, { ...buildEvent(profile, signal, { now }), reliability: { lagMinutes: profile.sourceContracts[signal.source].freshnessTargetMin + 1 } });
+    assert.equal(mapped.mappingStatus, 'mapped', `${id} trace signal maps required correlations`);
+    assert.equal(mapped.freshness.status, 'stale', `${id} trace signal records stale freshness`);
+    const gap = profile.samples.find((event) => event.id === 'supplier_contract_gap');
+    const incomplete = assessSourceContract(profile, { ...buildEvent(profile, gap, { now }), reliability: { lagMinutes: 0 } });
+    assert.equal(incomplete.mappingStatus, 'incomplete', `${id} contract-gap sample is incomplete`);
+    assert.equal(incomplete.freshness.status, 'fresh', `${id} contract-gap sample isolates mapping from freshness`);
   }
+  assert.deepEqual(qualityIssueTypes({ reliability: { flags: [] }, sourceContract: { mappingStatus: 'incomplete' } }), ['source_contract_incomplete']);
 });
 
 test('repair plan fixes correlatable legacy events and refuses unknown ones', () => {

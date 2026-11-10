@@ -47,6 +47,9 @@ export default {
     dc_wms: { label: 'DC warehouse system (WMS)', channel: 'wms_scan' },
     store_receiving: { label: 'Store receiving app', channel: 'manual' },
   },
+  sourceContracts: {
+    berry_supplier: { version: 1, freshnessTargetMin: 30, requiredCorrelationKeys: ['purchaseOrder', 'supplierId'] },
+  },
   milestones: [
     { id: 'ready_for_pickup', label: 'Ready for pickup', source: 'dc_wms', plannedOffsetMin: -300, maxDwellMin: 60 },
     { id: 'departed', label: 'Departed DC', source: 'carrier', plannedOffsetMin: -240, maxDwellMin: 60 },
@@ -142,6 +145,10 @@ export default {
       details: { scac: 'FRTX', trailerId: 'TRL-8812', door: '14', ediStatus: 'X3',
         raw: 'ST*214*0419~B10*TRL8812*RO77821*FRTX~LX*1~AT7*X3*NS***{{date}}*{{time}}*UT~MS1*TRENTON*NJ*US~SE*6*0419~' } },
     { id: 'arrived_dc_resend', label: 'Carrier: resend arrival (duplicate)', duplicateOf: 'arrived_dc' },
+    { id: 'supplier_contract_gap', label: 'Supplier: update missing purchase-order correlation', source: 'berry_supplier', eventType: 'status_note',
+      sourceEventId: 'SUP-MAP-45018', eventTimeOffsetMin: 0, description: 'Supplier update received without the purchase-order correlation key',
+      notes: 'Synthetic contract-gap demonstration; no supplier record is changed', details: { supplierId: 'SUP-BERRY-44', etaRevisionMin: 90,
+        raw: { type: 'supplier.eta_revised', supplier: 'SUP-BERRY-44', delayMinutes: 90, sentAt: '{{iso}}' } } },
     { id: 'late_departure_scan', label: 'WMS: departure scan uploaded 3h late', source: 'dc_wms', eventType: 'milestone',
       milestoneId: 'departed', sourceEventId: 'WMS-DEP-9001', eventTimeOffsetMin: -190,
       description: 'Outbound departure scan uploaded after handheld resync', notes: 'Handheld was offline in the yard',

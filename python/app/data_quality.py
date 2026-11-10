@@ -17,6 +17,7 @@ ISSUE_TYPES = {
     "milestone_earlier_report": ("Earlier milestone report", "medium"),
     "milestone_already_recorded": ("Repeated milestone report", "low"),
     "duplicate_suppressed": ("Duplicate source event suppressed", "low"),
+    "source_contract_incomplete": ("Source contract incomplete", "high"),
 }
 
 
@@ -24,6 +25,8 @@ def quality_issue_types(event: dict) -> list[str]:
     types = [flag for flag in event.get("reliability", {}).get("flags", []) if flag in ISSUE_TYPES]
     if event.get("reliability", {}).get("duplicateCount", 0) > 0:
         types.append("duplicate_suppressed")
+    if event.get("sourceContract", {}).get("mappingStatus") == "incomplete":
+        types.append("source_contract_incomplete")
     return list(dict.fromkeys(types))
 
 
@@ -38,7 +41,7 @@ async def upsert_quality_issues(db, profile: Profile, event: dict, session=None)
         result = await db[COLLECTIONS["quality_issues"]].update_one(
             {"issueKey": issue_key},
             {"$setOnInsert": {"issueId": f"DQ-{uuid4().hex[-8:].upper()}", "issueKey": issue_key, "profile": profile.id, "trackedEntityId": event["trackedEntityId"], "eventId": event["_id"], "source": event["source"], "issueType": issue_type, "issueLabel": label, "severity": severity, "eventTime": event["eventTime"], "receivedAt": event["receivedAt"], "createdAt": now, "audit": [{"at": now, "action": "opened", "by": f"source:{event['source']}", "note": label, "eventId": event["_id"]}]},
-             "$set": {"status": "open", "resolution": None, "reliability": issue_reliability, "updatedAt": now, "observedCount": issue_reliability["duplicateCount"] or 1}},
+             "$set": {"status": "open", "resolution": None, "reliability": issue_reliability, "sourceContract": event.get("sourceContract"), "updatedAt": now, "observedCount": issue_reliability["duplicateCount"] or 1}},
             upsert=True,
             session=session,
         )

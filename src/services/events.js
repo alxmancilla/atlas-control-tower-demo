@@ -5,6 +5,7 @@ import { openOrUpdateException } from './exceptions.js';
 import { BadRequestError } from '../errors.js';
 import { recomputeImpact } from './impact.js';
 import { upsertQualityIssues } from './dataQuality.js';
+import { assessSourceContract } from '../domain/sourceContract.js';
 
 const isDuplicateKey = (err, field) => err?.code === 11000 && (!field || String(err.message).includes(field));
 
@@ -64,6 +65,8 @@ async function insertNew(db, profile, doc, session) {
     ),
     duplicateCount: 0,
   };
+  const sourceContract = assessSourceContract(profile, doc);
+  if (sourceContract) doc.sourceContract = sourceContract;
   const res = await events.insertOne(doc, { session });
   doc._id = res.insertedId;
   const exception = doc.exception?.category ? await openOrUpdateException(db, profile, doc, { session }) : null;
