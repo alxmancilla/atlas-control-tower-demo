@@ -56,6 +56,14 @@ def require(status: int, payload: dict, expected: int = 200) -> dict:
     return payload
 
 
+def recommendation_to_accept(queue: list[dict]) -> tuple[str, str]:
+    for exception in queue:
+        for action in exception.get("recommendedActions", []):
+            if not exception.get("actionDecisions", {}).get(action.get("actionId")):
+                return exception["exceptionId"], action["actionId"]
+    raise RuntimeError("The delivery-delay exception did not receive an actionable recommendation")
+
+
 def wait_for_server(base_url: str, admin_token: str | None) -> dict:
     last_error: Exception | None = None
     for _ in range(40):
@@ -74,7 +82,9 @@ def verify(base_url: str, admin_token: str | None) -> None:
     if not status.get("connected") or not status.get("init", {}).get("initialized"):
         raise RuntimeError("Temporary database did not initialize")
     profiles = require(*call(base_url, "GET", "/api/profiles", admin_token=admin_token))
-    profile = profiles["defaultProfile"]
+    if not any(item["id"] == "retail" for item in profiles["profiles"]):
+        raise RuntimeError("Retail profile is required for the deterministic operator verification")
+    profile = "retail"
     query = f"?profile={profile}"
     require(*call(base_url, "GET", f"/api/overview{query}", admin_token=admin_token))
     accepted = require(*call(base_url, "POST", f"/api/events/sample{query}", {"sampleId": "arrived_dc"}, admin_token))
@@ -83,6 +93,28 @@ def verify(base_url: str, admin_token: str | None) -> None:
     duplicate = require(*call(base_url, "POST", f"/api/events/sample{query}", {"sampleId": "arrived_dc"}, admin_token))
     if duplicate.get("outcome") != "deduplicated":
         raise RuntimeError("Duplicate source event was not suppressed")
+    require(*call(base_url, "POST", f"/api/events/sample{query}", {"sampleId": "delay_alert"}, admin_token))
+    exceptions = require(*call(base_url, "GET", f"/api/exceptions{query}", admin_token=admin_token))
+    exception_id, action_id = recommendation_to_accept(exceptions["queue"])
+    decision = require(*call(base_url, "POST", f"/api/exceptions/{exception_id}/recommendation{query}", {"actionId": action_id, "decision": "accepted", "operator": "operator.verify"}, admin_token))
+    execution = decision.get("execution")
+    if not execution or execution.get("status") != "pending" or execution.get("connector", {}).get("externalWrite") is not False:
+        raise RuntimeError("Accepted recommendation did not create the expected simulated pending handoff")
+    execution_id = execution["executionId"]
+    for action, body in (("submit", {}), ("acknowledge", {}), ("reconcile", {"note": "Operator verification completed simulated reconciliation"})):
+        result = require(*call(base_url, "POST", f"/api/execution-outbox/{execution_id}/action{query}", {"action": action, "operator": "operator.verify", **body}, admin_token))
+    if result.get("status") != "reconciled":
+        raise RuntimeError("Simulated outbox handoff did not reach its terminal reconciled state")
+    outbox = require(*call(base_url, "GET", f"/api/execution-outbox{query}", admin_token=admin_token))
+    if not any(item.get("executionId") == execution_id and item.get("status") == "reconciled" for item in outbox["queue"]):
+        raise RuntimeError("Reconciled handoff was not returned by the execution queue")
+    require(*call(base_url, "POST", f"/api/events/sample{query}", {"sampleId": "received"}, admin_token))
+    overview = require(*call(base_url, "GET", f"/api/overview{query}", admin_token=admin_token))
+    if overview.get("businessImpact", {}).get("level") != "none":
+        raise RuntimeError("Receipt did not refresh business impact to none")
+    reanchored = require(*call(base_url, "POST", "/api/reanchor", {}, admin_token))
+    if not any(item.get("profile") == profile and "businessImpact" in item for item in reanchored.get("profiles", [])):
+        raise RuntimeError("Re-anchor did not report refreshed retail business impact")
     require(*call(base_url, "POST", f"/api/telemetry/reading{query}", {"kind": "normal"}, admin_token))
     require(*call(base_url, "POST", f"/api/telemetry/reading{query}", {"kind": "excursion"}, admin_token))
     require(*call(base_url, "POST", f"/api/validation/stage{query}", {"stage": "observe"}, admin_token))

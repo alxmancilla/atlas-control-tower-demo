@@ -145,13 +145,21 @@ class ReanchorDatabase:
         return self.collections[name]
 
 
-def test_reanchor_shifts_each_profile_and_regenerates_time_series_readings():
+def test_reanchor_shifts_each_profile_and_regenerates_time_series_readings(monkeypatch):
     now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
     db = ReanchorDatabase(now - timedelta(hours=2))
+    refreshed = []
+
+    async def refresh_impact(_, profile, observed_now):
+        refreshed.append((profile.id, observed_now))
+        return {"level": "none"}
+
+    monkeypatch.setattr("app.reanchor.recompute_impact", refresh_impact)
     report = asyncio.run(reanchor_demo(db, now=now))
     assert [item["shiftedMin"] for item in report] == [120, 120, 120]
     assert all(item["events"] == 1 and item["exceptions"] == 2 for item in report)
     assert all(item["executionOutbox"] == 2 for item in report)
+    assert refreshed == [("retail", now), ("healthcare", now), ("manufacturing", now)]
     assert all(item["telemetry"] == {"removed": 2, "inserted": 36} for item in report)
     events = db[COLLECTIONS["events"]]
     assert events.updates[0][2] == {"bypass_document_validation": True}

@@ -40,7 +40,7 @@ def test_event_builder_validates_profile_contract_and_reliability():
 def test_ingestion_retries_exception_races_and_suppresses_duplicate(monkeypatch):
     profile = get_profile("retail")
     event = EventInput.model_validate(payload())
-    calls = {"insert": 0, "duplicate": 0}
+    calls = {"insert": 0, "duplicate": 0, "impact": 0}
 
     async def fake_transaction(_, callback):
         return await callback(object())
@@ -53,7 +53,12 @@ def test_ingestion_retries_exception_races_and_suppresses_duplicate(monkeypatch)
 
     monkeypatch.setattr("app.events._within_transaction", fake_transaction)
     monkeypatch.setattr("app.events._insert_new", race_then_insert)
-    assert asyncio.run(ingest_event(object(), profile, event)) == {"outcome": "accepted"}
+    async def refresh_impact(_, __):
+        calls["impact"] += 1
+        return {"level": "high"}
+
+    monkeypatch.setattr("app.events.recompute_impact", refresh_impact)
+    assert asyncio.run(ingest_event(object(), profile, event)) == {"outcome": "accepted", "impact": {"level": "high"}}
     assert calls["insert"] == 2
 
     async def duplicate(_, __, ___, ____):
@@ -62,8 +67,9 @@ def test_ingestion_retries_exception_races_and_suppresses_duplicate(monkeypatch)
 
     monkeypatch.setattr("app.events._insert_new", lambda *args: (_ for _ in ()).throw(DuplicateKeyError("idempotencyKey_unique")))
     monkeypatch.setattr("app.events._record_duplicate", duplicate)
-    assert asyncio.run(ingest_event(object(), profile, event)) == {"outcome": "deduplicated"}
+    assert asyncio.run(ingest_event(object(), profile, event)) == {"outcome": "deduplicated", "impact": {"level": "high"}}
     assert calls["duplicate"] == 1
+    assert calls["impact"] == 2
 
 
 def test_transaction_uses_pymongo_async_session_context_manager():
@@ -90,13 +96,13 @@ def test_transaction_uses_pymongo_async_session_context_manager():
 def test_write_guard_requires_json_local_host_and_configured_database():
     app = create_app(Settings(mongodb_uri=None, db_name="atlas_control_tower_demo", host="127.0.0.1"))
     with TestClient(app, base_url="http://localhost:8000") as client:
-        assert client.post("/api/events", data="not-json").status_code == 415
+        assert client.post("/api/events", content="not-json").status_code == 415
         assert client.post("/api/events", json=payload()).status_code == 503
-        assert client.post("/api/reanchor", data="not-json").status_code == 415
+        assert client.post("/api/reanchor", content="not-json").status_code == 415
         assert client.post("/api/reanchor", json={}).status_code == 503
-        assert client.post("/api/events/sample", data="not-json").status_code == 415
+        assert client.post("/api/events/sample", content="not-json").status_code == 415
         assert client.post("/api/events/sample", json={"sampleId": "arrived_dc"}).status_code == 503
-        assert client.post("/api/validation/stage", data="not-json").status_code == 415
+        assert client.post("/api/validation/stage", content="not-json").status_code == 415
         assert client.post("/api/validation/stage", json={"stage": "observe"}).status_code == 503
         assert client.post("/api/validation/invalid", json={"sampleId": "legacy_missing_entity"}).status_code == 503
         assert client.post("/api/validation/valid", json={}).status_code == 503

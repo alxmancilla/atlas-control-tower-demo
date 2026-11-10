@@ -20,6 +20,7 @@ from .exceptions import apply_exception_action, decide_recommended_action, excep
 from .execution_outbox import apply_execution_action, execution_queue
 from .profiles import PROFILES, get_profile
 from .maintenance import maintenance_state, with_maintenance
+from .impact import is_stale, recompute_impact
 from .readiness import demo_clock_age, initialization_status
 from .reanchor import reanchor_demo
 from .search import find_similar, run_search, search_status
@@ -128,6 +129,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def overview(request: Request, profile: str | None = None):
         db, selected = await view_ready(request), profile_from_query(profile)
         result, reliability = await asyncio.gather(entity_overview(db, selected), reliability_summary(db, selected))
+        if is_stale(result.get("businessImpact")):
+            result["businessImpact"] = await recompute_impact(db, selected)
         return {**result, "reliability": reliability}
 
     @app.get("/api/portfolio")

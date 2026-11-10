@@ -86,6 +86,7 @@ class Profile:
     invalid_samples: tuple[InvalidSample, ...] = ()
     legacy_references: tuple[str, ...] = ()
     source_contracts: dict[str, dict[str, object]] = field(default_factory=dict)
+    impact: dict[str, object] = field(default_factory=dict)
 
     def public(self) -> dict[str, object]:
         return {
@@ -122,6 +123,12 @@ _SOURCE_CONTRACTS = {
     "retail": {"berry_supplier": {"version": 1, "freshnessTargetMin": 30, "requiredCorrelationKeys": ["purchaseOrder", "supplierId"]}},
     "healthcare": {"reagent_supplier": {"version": 1, "freshnessTargetMin": 20, "requiredCorrelationKeys": ["transferOrder", "supplierId"]}},
     "manufacturing": {"supplier_portal": {"version": 1, "freshnessTargetMin": 45, "requiredCorrelationKeys": ["purchaseOrder", "asnId", "supplierId"]}},
+}
+
+_IMPACT = {
+    "retail": {"label": "Store shelf cover", "consequence": "shelf empty at {destination} during the weekend promo", "criticalShortfallHours": 2, "watchMarginHours": 1},
+    "healthcare": {"label": "Lab reagent cover", "consequence": "{destination} runs out of RK-200 kits and postpones scheduled runs", "criticalShortfallHours": 1, "watchMarginHours": 1},
+    "manufacturing": {"label": "Line-side material cover", "consequence": "{destination} starves and its work order stops", "criticalShortfallHours": 1, "watchMarginHours": 0.5},
 }
 
 
@@ -175,7 +182,7 @@ _INVALID_SAMPLES = {
 _LEGACY_REFERENCES = {"retail": ("RO-77821",), "healthcare": ("TO-55021",), "manufacturing": ("PO-44190",)}
 
 PROFILES = {
-    profile_id: replace(profile, telemetry=_TELEMETRY[profile_id], samples=_SAMPLES[profile_id], invalid_samples=_INVALID_SAMPLES[profile_id], legacy_references=_LEGACY_REFERENCES[profile_id], source_contracts=_SOURCE_CONTRACTS[profile_id])
+    profile_id: replace(profile, telemetry=_TELEMETRY[profile_id], samples=_SAMPLES[profile_id], invalid_samples=_INVALID_SAMPLES[profile_id], legacy_references=_LEGACY_REFERENCES[profile_id], source_contracts=_SOURCE_CONTRACTS[profile_id], impact=_IMPACT[profile_id])
     for profile_id, profile in PROFILES.items()
 }
 

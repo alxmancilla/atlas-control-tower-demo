@@ -18,7 +18,7 @@ The ordinary Python tests do not contact Atlas. For a complete isolated journey,
 
 `uv run --env-file ../.env python verify_operator_journey.py --database atlas_control_tower_demo_operator_verify --confirm-cleanup atlas_control_tower_demo_operator_verify`
 
-The verifier uses the existing root Node setup command to seed the temporary database, starts FastAPI on port `8011`, checks initialization, sample-event deduplication, telemetry, and observe/enforce schema validation, then stops the server and removes the temporary database even when a check fails. It does not accept or print credentials.
+The verifier uses the existing root Node setup command to seed the temporary database, starts FastAPI on port `8011`, and checks initialization, event deduplication, receipt-driven impact refresh, recommendation acceptance and the simulated outbox lifecycle, re-anchoring, telemetry, and observe/enforce schema validation. It then stops the server and removes the temporary database even when a check fails. It does not accept or print credentials.
 
 ## Implemented endpoints
 

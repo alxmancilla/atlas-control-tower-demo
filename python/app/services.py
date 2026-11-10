@@ -43,7 +43,7 @@ async def portfolio_overview(db, profile: Profile) -> dict[str, object]:
     return {"loads": loads, "summary": {"total": len(loads), "critical": sum(load.get("businessImpact", {}).get("level") == "critical" for load in loads), "high": sum(load.get("businessImpact", {}).get("level") == "high" for load in loads), "watch": sum(load.get("businessImpact", {}).get("level") == "watch" for load in loads), "openExceptions": sum(load["openExceptionCount"] for load in loads)}}
 
 
-async def entity_overview(db, profile: Profile) -> dict[str, object]:
+async def entity_overview(db, profile: Profile, now: datetime | None = None) -> dict[str, object]:
     pipeline = [
         {"$match": {"trackedEntityId": profile.entity_id, "profile": profile.id}},
         {"$lookup": {"from": COLLECTIONS["events"], "localField": "trackedEntityId", "foreignField": "trackedEntityId", "pipeline": [{"$match": {"milestoneId": {"$type": "string"}, "eventTime": {"$type": "date"}}}, {"$sort": {"eventTime": 1}}, {"$group": {"_id": "$milestoneId", "actualTime": {"$first": "$eventTime"}, "actualSource": {"$first": "$source"}, "reports": {"$sum": 1}}}], "as": "actuals"}},
@@ -58,7 +58,8 @@ async def entity_overview(db, profile: Profile) -> dict[str, object]:
     actuals = {item["_id"]: item for item in doc["actuals"]}
     milestones = [{"id": planned["milestoneId"], "label": planned["label"], "sequence": planned["sequence"], "source": planned["source"], "plannedTime": planned["plannedTime"], "maxDwellMin": planned.get("maxDwellMin"), "actualTime": actuals.get(planned["milestoneId"], {}).get("actualTime"), "actualSource": actuals.get(planned["milestoneId"], {}).get("actualSource"), "reports": actuals.get(planned["milestoneId"], {}).get("reports", 0)} for planned in sorted(doc["plannedMilestones"], key=lambda item: item["sequence"])]
     latest = next((item for item in reversed(milestones) if item["actualTime"]), None)
-    return {"entity": {key: doc.get(key) for key in ("trackedEntityId", "entityKind", "product", "origin", "destination", "metadata", "orderLines", "anchorAt")}, "latestReliableMilestone": latest, "openExceptionCount": sum(item["n"] for item in doc["openExceptions"]), "openExceptionsBySeverity": {item["_id"]: item["n"] for item in doc["openExceptions"]}, "businessImpact": doc.get("businessImpact"), "assessment": assess_milestones(milestones, datetime.now(timezone.utc), profile.risk), "evaluatedAt": datetime.now(timezone.utc)}
+    evaluated_at = now or datetime.now(timezone.utc)
+    return {"entity": {key: doc.get(key) for key in ("trackedEntityId", "entityKind", "product", "origin", "destination", "metadata", "orderLines", "anchorAt")}, "latestReliableMilestone": latest, "openExceptionCount": sum(item["n"] for item in doc["openExceptions"]), "openExceptionsBySeverity": {item["_id"]: item["n"] for item in doc["openExceptions"]}, "businessImpact": doc.get("businessImpact"), "assessment": assess_milestones(milestones, evaluated_at, profile.risk), "evaluatedAt": evaluated_at}
 
 
 def _rate_expr(part, whole) -> dict:

@@ -1,6 +1,6 @@
 # Atlas Control Tower Demo
 
-A small operator console that runs against a **real MongoDB Atlas cluster**. It turns noisy operational signals into prioritized work and explainable operator decisions through seven workflows:
+A small operator console that runs against a **real MongoDB Atlas cluster**. Its core operator story is: trace a disruption, ingest a signal, prioritize its exception, record a decision, and find similar resolved work. The same shared data model also demonstrates these workflows:
 
 1. **Portfolio prioritization**: active loads are ranked by business impact, open work, and SLA urgency; one primary load offers the full interactive drill-down.
 2. **Exception-to-decision workflow**: source events open, deduplicate, and link work items; operators acknowledge, assign, and resolve them, and can accept or decline explainable recommended actions with an audit trail.
@@ -16,14 +16,11 @@ Three synthetic domain profiles share the same workflow: **retail** (store reple
 
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/) for the default FastAPI demo.
 - Node.js 22 or later for demo setup/reset, Search administration, and the retained Node reference implementation.
-- Docker Desktop (or Docker Engine with Compose) for the optional local Kafka contract stack.
 - A **non-production** Atlas cluster. M10+ is recommended. Free and Flex tiers have limits on Search index count and some commands, and the results below were not verified on them.
-- Optional **Atlas Stream Processing** telemetry rollups: an Atlas Stream Processing instance, a Kafka topic, and separate Connection Registry entries for the Kafka source and Atlas sink. See [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
-- Optional managed Kafka path: [`infra/msk-atlas-streams/`](infra/msk-atlas-streams/) creates a demo-scoped AWS MSK, PrivateLink, and Connection Registry integration through an explicit Terraform apply/destroy workflow. It incurs AWS/Atlas charges and must use secure remote Terraform state.
 - A database user with `readWrite` and `dbAdmin` on the demo database. `collMod` needs `dbAdmin`.
 - Your IP address in Atlas **Network Access**.
-- For the 4th validation stage (`validationLevel: "constraint"`): a cluster on **MongoDB 9.0 or later**. On earlier versions, the stage is disabled in the UI and the reason is shown.
-- For **similar past cases** (Vector Search with Automated Embedding): on M10+ clusters, **storage auto-scaling must be enabled**. Atlas generates the embeddings with the `voyage-4` model; embedding the index and each lookup consume tokens from your organization's free allocation (200M per model, then billed). If the index can't be built, the rest of the demo works and the panel explains why.
+
+**Optional capabilities:** the [Stream Processing runbook](docs/atlas-stream-processing.md) covers its separate Kafka, Docker, public-broker, and MSK prerequisites. The **Constraint** validation stage needs MongoDB 9.0+. Similar-case Vector Search needs M10+ storage auto-scaling and consumes Atlas Automated Embedding tokens. The core workflow continues to work when either optional capability is unavailable.
 
 ## Setup
 
@@ -42,52 +39,12 @@ device, add this machine's LAN hostname or IP address to `ALLOWED_HOSTS`.
 
 ### Optional: Atlas Stream Processing telemetry rollups
 
-The demo's event-to-exception transaction remains application-owned. Atlas Stream
-Processing is an opt-in continuous telemetry aggregation: Kafka telemetry input is
-windowed by event time and merged into `telemetry_rollups`. It never reads the
-`telemetry_readings` time-series collection.
-
-Start the local Apache Kafka contract stack and inspect the six deterministic sample
-readings before configuring Atlas Stream Processing:
-
-```bash
-npm run kafka:up
-npm run kafka:publish
-npm run kafka:verify
-```
-
-It is loopback-only and uses `PLAINTEXT`, so it is safe for local development but is
-**not reachable or supported as an Atlas Stream Processing source**. The real ASP
-Kafka connection needs a separately deployed, externally reachable TLS/SASL broker.
-See the complete setup and security boundary in
-[`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
-
-For a short-lived public-IP demo, the repository also has a separately started
-`SASL_SSL` profile on TCP `9094`. It requires a stable public IP, an IP-SAN broker
-certificate, router/firewall allowlisting of Atlas control-plane IPs, and passwords
-outside Git. Follow the **Opt-in public-IP Kafka broker** runbook in
-[`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md); do not expose
-the default local broker.
-
-For a private AWS MSK source instead of a separately managed broker, use the reviewed
-plan-first template in [`infra/msk-atlas-streams/`](infra/msk-atlas-streams/). It
-creates the Kafka and Atlas sink connection labels used below but deliberately does
-not create the ASP processor or Kafka ACLs.
-
-After an administrator creates the Stream Processing instance and connection-registry
-entries, set only the non-secret labels in `.env`, render the reviewed pipeline, and
-deploy it through the Atlas Stream Processing UI/API:
-
-```bash
-npm run setup
-npm run stream:processor:check
-npm run stream:processor > telemetry-rollups.processor.json
-```
-
-Set `ASP_TELEMETRY_ENABLED=true` only after the processor is running. FastAPI then
-shows recent rollups beside its direct time-series telemetry view; direct telemetry
-remains available while rollups are absent. The full source-message contract,
-late-event policy, and runbook are in [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
+This is deliberately outside the core demo. The application keeps event-to-exception
+decisions transactional; Atlas Stream Processing is an opt-in Kafka telemetry rollup
+into `telemetry_rollups`. It never reads the direct `telemetry_readings` time-series
+collection. The [dedicated runbook](docs/atlas-stream-processing.md) covers the local
+contract stack, secure public broker, private MSK path, processor deployment, and
+`ASP_TELEMETRY_ENABLED=true` activation.
 
 ### Default implementation: Python / FastAPI
 
@@ -176,26 +133,35 @@ Source-contract evidence is written at ingestion. Reset the non-production demo 
 
 **Atlas Stream Processing is optional and telemetry-only.** Each operational event needs a stateful, per-entity decision (dedupe, ordering, exception linking), which this app makes transactionally against operational collections. The optional processor instead reads Kafka telemetry, applies one-minute event-time windows with a five-minute lateness allowance, and materializes `telemetry_rollups`. It does not read the `telemetry_readings` time-series collection. See [`docs/atlas-stream-processing.md`](docs/atlas-stream-processing.md).
 
-## Demo script (about 10 minutes, retail; profile-specific variants included)
+## Core demo script (about 10 minutes, retail)
 
-1. **Trace → portfolio → overview**: begin with **Cross-domain disruption trace**. The synthetic supplier ETA is late because its source replay arrived after the DC allocation decision; follow the link through the DC, the chilled shipment, and the first store's promo exposure. Then show **Active load portfolio**. It ranks four active loads by business impact and SLA urgency; the highlighted primary load is the one with a fully interactive event timeline below. The other rows provide clearly labeled synthetic WMS/TMS context. **Downstream impact** lists the three stores on the primary load, with each store's stock, projected arrival, and shortfall.
-2. **Live event flow**: click *Carrier: arrived at cross-dock*. The activity log shows the change-stream insert, then the milestone and timeline refresh. Expand **raw EDI** on the new row: the same collection holds EDI segments, WMS scans, GPS pings, and webhook bodies.
-3. Click *Carrier: resend arrival (duplicate)*. The timeline shows "1 duplicate suppressed" and no new row.
-4. Start with the seeded **Data-quality queue**: it contains the late supplier ETA and shows source confidence, event time, receipt time, lag, and supplier-contract evidence. Acknowledge it, or resolve it with a stewardship note; this does not mutate supplier data. Click *Supplier: update missing purchase-order correlation*: it is on time but opens a high-severity **Source contract incomplete** work item, proving mapping completeness is handled separately from arrival freshness. Then click *WMS: departure scan uploaded 3h late*. The event is labeled **out of order** and **late**, creates/updates quality work, and "Departed" still shows the original actual time with 2 reports.
-5. Click *Carrier: ETA slip alert*, then *Store: reports same delay*. Each click commits the event and the exception in one transaction (the **txn** badge in the activity log). One exception now has 2 related events and rises to the top of the queue, with its business impact in the score. Open it: **Recommended actions** identifies the specific store stockout, decision deadline, and required arrival improvement. Enter your name and click **Accept action**: it records the decision and creates one **pending** request in **Governed execution handoff** atomically. Simulate **Submit**, **Acknowledge simulated receipt**, then **Reconcile** with a note; alternatively mark it failed and reconcile the failure. The KPI updates for acceptance only—the outbox proves controlled handoff, not an actual expedite or carrier dispatch. **Similar resolved cases** lists past delays and how they were handled. Click **Use this resolution**, acknowledge, assign, add a note, and resolve it. Later, *Carrier: out for delivery* (a GPS geofence ping) and *Store: received* bring the shelf cover back to `none`.
-6. **Search** for `delayed replenishment` or `traffic` and point out the highlights.
-7. **Telemetry**: click *Add out-of-range reading*, then *Run aggregation*. Tighten the range and run it again.
-8. **Data quality**: go to **Observe** and submit a legacy event. It is accepted and listed as invalid. Go to **Enforce** and submit the other legacy event. It is rejected and the server error is shown. Repair or remove the invalid records, then click **Constraint** (9.0+). Optionally, try Constraint while an invalid record exists to see the scan fail.
-9. Switch profile and revisit **Cross-domain disruption trace**. Healthcare shows a late reagent supplier release correlated to hub allocation, controlled courier transfer, and exposed lab reagent cover; it contains operational logistics data only, never patient or clinical data. Manufacturing shows a late component ASN correlated to receiving, incoming quality, and the Line B material-shortage horizon. In each case, the initial late source signal appears in the **Data-quality queue**; acknowledge or resolve it without changing an upstream supplier record, production schedule, or logistics commitment.
+1. **Trace → portfolio → impact**: open **Cross-domain disruption trace** and follow the late supplier ETA through the DC, chilled shipment, and promo exposure. Then show **Active load portfolio** and the primary load's **Downstream impact** by store.
+2. **Live event flow**: click *Carrier: arrived at cross-dock*, expand its raw EDI data, then click *Carrier: resend arrival (duplicate)* to show suppression without a second timeline row.
+3. **Exception → decision**: click *Carrier: ETA slip alert* and *Store: reports same delay*. The transaction badge shows the related writes. Open the delivery-delay exception, explain its stockout recommendation, and accept or decline it with an operator identity.
+4. **Search → resolution**: search `delayed replenishment` or `traffic`, open a similar resolved case, then acknowledge, assign, note, and resolve the current exception. *Store: received* refreshes downstream impact to `none`.
+
+### Optional extensions
+
+- **Data quality and source contracts:** inspect the seeded late supplier signal, then run the missing-correlation and late-departure samples. They create separate auditable stewardship work; they do not change a partner record.
+- **Governed handoff:** after accepting a recommendation, simulate `pending → submitted → acknowledged → reconciled` (or `failed → reconciled`). It is an audit demonstration, never an external dispatch.
+- **Telemetry and schema validation:** add an excursion, run the time-series aggregation, then use Observe/Enforce and optionally Constraint (MongoDB 9.0+) validation stages.
+- **Other profiles:** revisit the trace and data-quality queue for healthcare and manufacturing. They contain operational logistics data only and no patient, clinical, supplier, or production-system writes.
 
 ## Testing
 
 ```bash
 npm test                    # unit tests for the rules, schema transitions, profiles, and config (no network)
 npm run test:integration    # against Atlas: uses TEST_DB_NAME (default atlas_control_tower_demo_test)
+cd python && uv run pytest  # FastAPI unit/workflow tests (no network)
+cd python && uv run --env-file ../.env python verify_operator_journey.py --database atlas_control_tower_demo_operator_verify --confirm-cleanup atlas_control_tower_demo_operator_verify
 ```
 
 Integration tests **skip with an explicit message** when `MONGODB_URI` is not set. They never mock Atlas or use a local deployment. They reset only `TEST_DB_NAME`, which must contain `demo`. Before the first run, they do not create Search indexes, so the search test checks status reporting only.
+
+The final command is the opt-in FastAPI Atlas verification. It creates and removes only
+the explicitly confirmed `_operator_verify` database, then checks ingestion and
+deduplication, impact refresh on receipt, recommendation acceptance → simulated outbox
+lifecycle, re-anchor, telemetry, and validation stages through the public API.
 
 ## Troubleshooting
 

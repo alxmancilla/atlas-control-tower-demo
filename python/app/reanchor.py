@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .db import COLLECTIONS
+from .impact import recompute_impact
 from .profiles import PROFILES, Profile
 from .telemetry import synthetic_series
 
@@ -82,10 +83,11 @@ async def _reanchor_profile(db, profile: Profile, now: datetime) -> dict[str, ob
     if readings:
         result = await telemetry.insert_many(readings)
         inserted = len(result.inserted_ids)
+    impact = await recompute_impact(db, profile, now)
     return {
         "profile": profile.id, "shiftedMin": round(milliseconds / 60_000), "events": events.modified_count,
         "exceptions": exceptions.modified_count, "qualityIssues": quality_issues.modified_count, "executionOutbox": execution_outbox.modified_count, "telemetry": {"removed": removed.deleted_count, "inserted": inserted},
-        "businessImpact": ((entity.get("businessImpact") or {}).get("level")),
+        "businessImpact": impact["level"],
     }
 
 

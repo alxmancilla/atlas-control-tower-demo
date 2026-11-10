@@ -10,6 +10,7 @@ from .db import COLLECTIONS
 from .errors import BadRequest
 from .exceptions import open_or_update_exception
 from .data_quality import upsert_quality_issues
+from .impact import recompute_impact
 from .profiles import Profile, Sample
 from .schemas import EventInput
 from .source_contract import assess_source_contract
@@ -79,18 +80,28 @@ async def _within_transaction(db, callback):
 
 async def ingest_event(db, profile: Profile, payload: EventInput, received_at: datetime | None = None) -> dict:
     base = build_event(profile, payload, received_at or datetime.now(timezone.utc))
+    result = None
     for attempt in range(3):
         try:
-            return await _within_transaction(db, lambda session: _insert_new(db, profile, dict(base), session))
+            result = await _within_transaction(db, lambda session: _insert_new(db, profile, dict(base), session))
+            break
         except DuplicateKeyError as error:
             # A competing transaction may have opened this category work item first. Retrying
             # finds it and links the event; a duplicate source event uses the original event.
             if "exceptionKey" in str(error) and attempt < 2:
                 continue
             if "idempotencyKey" in str(error):
-                return await _within_transaction(db, lambda session: _record_duplicate(db, profile, base, session))
+                result = await _within_transaction(db, lambda session: _record_duplicate(db, profile, base, session))
+                break
             raise
-    raise RuntimeError("Event ingestion exhausted its transaction retry budget")
+    if result is None:
+        raise RuntimeError("Event ingestion exhausted its transaction retry budget")
+    # Match the Node reference: derived impact refreshes after commit and never rolls back a valid event.
+    try:
+        result["impact"] = await recompute_impact(db, profile)
+    except Exception as error:
+        result["impactError"] = str(error)
+    return result
 
 
 async def _insert_new(db, profile: Profile, event: dict, session) -> dict:
