@@ -14,7 +14,6 @@ INDEXES = {
     "execution_outbox": {"executionKey_unique", "profile_entity_status_updated"},
     "positions": {"location_item_unique"},
     "telemetry": {"meta_entity_metric_ts"},
-    "telemetry_rollups": {"profile_sensor_metric_window_unique"},
 }
 
 

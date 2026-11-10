@@ -53,7 +53,7 @@ def classify_arrival(event_time: datetime, received_at: datetime, latest: dateti
     return {"status": "out_of_order" if "out_of_order" in flags else "late" if "late" in flags else "accepted", "flags": flags, "lagMinutes": lag, "duplicateCount": 0, "confidence": confidence}
 
 
-def build_event(profile: Profile, payload: EventInput, received_at: datetime) -> dict:
+def build_event(profile: Profile, payload: EventInput, received_at: datetime, *, seeded: bool = False) -> dict:
     if payload.source not in profile.sources:
         raise BadRequest(f'Unknown source "{payload.source}" for profile {profile.id}')
     if payload.milestone_id and payload.milestone_id not in profile.milestones:
@@ -63,7 +63,7 @@ def build_event(profile: Profile, payload: EventInput, received_at: datetime) ->
     channel = payload.channel or profile.sources[payload.source]
     if channel not in {"edi", "api", "wms_scan", "gps", "iot", "manual", "batch_file"}:
         raise BadRequest(f'Unknown channel "{channel}"')
-    event = {"trackedEntityId": profile.entity_id, "profile": profile.id, "eventType": payload.event_type, "eventTime": _utc(payload.event_time), "receivedAt": _utc(received_at), "source": payload.source, "channel": channel, "sourceEventId": payload.source_event_id, "idempotencyKey": f"{payload.source}:{payload.source_event_id}", "description": payload.description, "details": payload.details, "demo": {"python": True}}
+    event = {"trackedEntityId": profile.entity_id, "profile": profile.id, "eventType": payload.event_type, "eventTime": _utc(payload.event_time), "receivedAt": _utc(received_at), "source": payload.source, "channel": channel, "sourceEventId": payload.source_event_id, "idempotencyKey": f"{payload.source}:{payload.source_event_id}", "description": payload.description, "details": payload.details, "demo": {"python": True, "seeded": seeded}}
     if payload.milestone_id:
         event["milestoneId"] = payload.milestone_id
     if payload.exception_category:
@@ -78,8 +78,8 @@ async def _within_transaction(db, callback):
         return await session.with_transaction(callback)
 
 
-async def ingest_event(db, profile: Profile, payload: EventInput, received_at: datetime | None = None) -> dict:
-    base = build_event(profile, payload, received_at or datetime.now(timezone.utc))
+async def ingest_event(db, profile: Profile, payload: EventInput, received_at: datetime | None = None, *, seeded: bool = False) -> dict:
+    base = build_event(profile, payload, received_at or datetime.now(timezone.utc), seeded=seeded)
     result = None
     for attempt in range(3):
         try:
@@ -96,7 +96,7 @@ async def ingest_event(db, profile: Profile, payload: EventInput, received_at: d
             raise
     if result is None:
         raise RuntimeError("Event ingestion exhausted its transaction retry budget")
-    # Match the Node reference: derived impact refreshes after commit and never rolls back a valid event.
+    # Derived impact refreshes after commit and never rolls back a valid event.
     try:
         result["impact"] = await recompute_impact(db, profile)
     except Exception as error:

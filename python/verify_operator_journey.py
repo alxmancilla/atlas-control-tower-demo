@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         import asyncio
         asyncio.run(drop_database(settings))
-        subprocess.run(["node", "--env-file-if-exists=.env", "src/cli.js", "setup"], cwd=ROOT, env=environment, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run([sys.executable, "-m", "app.cli", "setup"], cwd=ROOT / "python", env=environment, check=True, stdout=subprocess.DEVNULL)
         server = subprocess.Popen([sys.executable, "-m", "app.run"], cwd=ROOT / "python", env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait_for_server(f"http://127.0.0.1:{args.port}", settings.admin_token)
         verify(f"http://127.0.0.1:{args.port}", settings.admin_token)

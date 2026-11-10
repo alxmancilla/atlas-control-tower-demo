@@ -52,7 +52,6 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     assert "X-Admin-Token" in page
     assert "sessionStorage" in page
     assert "Some dashboard sections are unavailable" in page
-    assert "Atlas Stream Processing rollups" in page
     assert "sourceContractSummary" in page
     assert "bounded linked operational context" in page
     assert "data-execution-action" in page

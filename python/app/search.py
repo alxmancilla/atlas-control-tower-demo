@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from pymongo.operations import SearchIndexModel
+
 from .config import redact
 from .db import COLLECTIONS
 from .errors import BadRequest, NotFound, ServiceUnavailable
@@ -9,9 +11,9 @@ from .profiles import Profile
 
 
 SEARCH_INDEXES = (
-    {"collection": COLLECTIONS["events"], "name": "ops_events_search", "type": "search", "feature": "search"},
-    {"collection": COLLECTIONS["exceptions"], "name": "ops_exceptions_search", "type": "search", "feature": "search"},
-    {"collection": COLLECTIONS["exceptions"], "name": "ops_exceptions_similar", "type": "vectorSearch", "feature": "similar"},
+    {"collection": COLLECTIONS["events"], "name": "ops_events_search", "type": "search", "feature": "search", "definition": {"mappings": {"dynamic": False, "fields": {"description": {"type": "string"}, "notes": {"type": "string"}, "profile": {"type": "token"}, "source": {"type": "token"}, "eventType": {"type": "token"}, "trackedEntityId": {"type": "token"}}}}},
+    {"collection": COLLECTIONS["exceptions"], "name": "ops_exceptions_search", "type": "search", "feature": "search", "definition": {"mappings": {"dynamic": False, "fields": {"summary": {"type": "string"}, "categoryLabel": {"type": "string"}, "resolution": {"type": "document", "fields": {"note": {"type": "string"}}}, "profile": {"type": "token"}, "status": {"type": "token"}, "category": {"type": "token"}}}}},
+    {"collection": COLLECTIONS["exceptions"], "name": "ops_exceptions_similar", "type": "vectorSearch", "feature": "similar", "definition": {"fields": [{"type": "autoEmbed", "modality": "text", "path": "summary", "model": "voyage-4"}, {"type": "filter", "path": "status"}, {"type": "filter", "path": "profile"}]}},
 )
 
 
@@ -23,7 +25,7 @@ def _feature_status(indexes: list[dict], feature: str, label: str) -> dict:
     elif any(item["status"] == "UNAVAILABLE" for item in matching):
         message = f"{label} is unavailable on this connection. See the error per index."
     elif any(item["status"] == "MISSING" for item in matching):
-        message = f"{label} indexes are missing. Create the documented indexes in Atlas before using this feature."
+        message = f'{label} indexes are missing. Run "control-tower search-create" or create them in the Atlas UI.'
     else:
         message = f"{label} indexes are building. It stays disabled until Atlas reports them queryable."
     return {"ready": ready, "message": message}
@@ -32,7 +34,7 @@ def _feature_status(indexes: list[dict], feature: str, label: str) -> dict:
 async def search_status(db) -> dict:
     indexes = []
     for spec in SEARCH_INDEXES:
-        base = dict(spec)
+        base = {key: spec[key] for key in ("collection", "name", "type", "feature")}
         try:
             cursor = await db[spec["collection"]].list_search_indexes(spec["name"])
             found = [item async for item in cursor]
@@ -42,6 +44,24 @@ async def search_status(db) -> dict:
     search = _feature_status(indexes, "search", "MongoDB Search")
     similar = _feature_status(indexes, "similar", "Similar-case lookup (Automated Embedding)")
     return {**search, "similar": similar, "indexes": indexes, "checkedAt": datetime.now(timezone.utc)}
+
+
+async def create_search_indexes(db) -> list[dict]:
+    """Request only missing Atlas Search indexes; never replace an existing index."""
+    current = {item["name"]: item for item in (await search_status(db))["indexes"]}
+    results = []
+    for spec in SEARCH_INDEXES:
+        existing = current[spec["name"]]
+        if existing["status"] != "MISSING":
+            results.append({"name": spec["name"], "action": "skipped", "status": existing["status"], **({"error": existing["error"]} if existing.get("error") else {})})
+            continue
+        try:
+            model = SearchIndexModel(definition=spec["definition"], name=spec["name"], type=spec["type"])
+            await db[spec["collection"]].create_search_index(model)
+            results.append({"name": spec["name"], "action": "requested"})
+        except Exception as error:
+            results.append({"name": spec["name"], "action": "failed", "error": redact(error)})
+    return results
 
 
 def _branch_project(kind: str, title: str, text: str) -> dict:

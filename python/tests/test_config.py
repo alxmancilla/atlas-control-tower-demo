@@ -1,6 +1,6 @@
 import pytest
 
-from app.config import DEFAULT_ALLOWED_HOSTS, ConfigError, Settings, allowed_hosts_env, assert_demo_db_name, assert_safe_binding, boolean_env, is_atlas_host, redact, target_label
+from app.config import DEFAULT_ALLOWED_HOSTS, ConfigError, Settings, allowed_hosts_env, assert_demo_db_name, assert_safe_binding, is_atlas_host, redact, target_label
 
 
 URI = "mongodb+srv://user:secret@demo.abcde.mongodb.net/?retryWrites=true"
@@ -27,13 +27,6 @@ def test_wildcard_default_requires_an_admin_token():
         assert_safe_binding(Settings.from_env({"MONGODB_URI": URI}))
     assert_safe_binding(Settings.from_env({"MONGODB_URI": URI, "ADMIN_TOKEN": "test-token"}))
     assert_safe_binding(Settings.from_env({"MONGODB_URI": URI, "HOST": "127.0.0.1"}))
-
-
-def test_stream_processing_flag_is_explicit_and_validated():
-    assert Settings.from_env({"MONGODB_URI": URI, "ASP_TELEMETRY_ENABLED": "true"}).stream_processing_enabled is True
-    assert boolean_env({}, "ASP_TELEMETRY_ENABLED") is False
-    with pytest.raises(ConfigError, match="true or false"):
-        Settings.from_env({"MONGODB_URI": URI, "ASP_TELEMETRY_ENABLED": "sometimes"})
 
 
 def test_allowed_hosts_require_host_names_without_ports():

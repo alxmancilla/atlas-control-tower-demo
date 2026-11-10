@@ -17,7 +17,6 @@ COLLECTIONS = {
     "quality_issues": "data_quality_issues",
     "execution_outbox": "execution_outbox",
     "telemetry": "telemetry_readings",
-    "telemetry_rollups": "telemetry_rollups",
     "positions": "inventory_positions",
     "kpis": "kpi_snapshots",
     "state": "demo_state",

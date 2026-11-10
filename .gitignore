@@ -1,16 +1,17 @@
-node_modules/
-package-lock.json
+# Ignore an existing local development certificate; never commit it.
 broker.crt
+node_modules/
 python/.venv/
+*.egg-info/
 __pycache__/
 .env
 .env.*
 !.env.example
 .DS_Store
-.local/kafka-public/
+.local/
 
 # Terraform working files, state, crash artifacts, and real variable files may hold
-# cloud resource metadata and sensitive Stream Processing/Kafka credentials.
+# cloud resource metadata and sensitive credentials.
 **/.terraform/*
 *.tfstate
 *.tfstate.*

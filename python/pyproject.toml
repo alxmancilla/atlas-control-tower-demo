@@ -8,6 +8,12 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
 ]
 
+[project.scripts]
+control-tower = "app.cli:main"
+
+[tool.uv]
+package = true
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",

@@ -122,7 +122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         db = await view_ready(request)
         entity = await db["tracked_entities"].find_one({"profile": profile.id, "trackedEntityId": profile.entity_id}, {"_id": 1})
         if not entity:
-            raise Conflict("The demo database is not initialized. Initialize the Node reference demo before submitting events.")
+            raise Conflict("The demo database is not initialized. Run the Python setup command before submitting events.")
         return db
 
     @app.get("/api/overview")
@@ -147,7 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/telemetry")
     async def telemetry(request: Request, profile: str | None = None, hours: float = 8, min: float | None = None, max: float | None = None):
-        return await telemetry_view(await view_ready(request), profile_from_query(profile), hours=hours, minimum=min, maximum=max, stream_processing_enabled=request.app.state.settings.stream_processing_enabled)
+        return await telemetry_view(await view_ready(request), profile_from_query(profile), hours=hours, minimum=min, maximum=max)
 
     @app.get("/api/search")
     async def search(request: Request, q: str | None = None, profile: str | None = None, kind: str = "all", source: str | None = None, event_type: str | None = None, status: str | None = None, limit: int = 10):
@@ -196,7 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         db = get_db(request.app)
         readiness = await initialization_status(db)
         if not readiness["initialized"]:
-            raise Conflict("The demo database is not initialized. Initialize the Node reference demo before reanchoring.")
+            raise Conflict("The demo database is not initialized. Run the Python setup command before reanchoring.")
         return {"profiles": await with_maintenance(db, "reanchor", lambda: reanchor_demo(db))}
 
     @app.post("/api/events")

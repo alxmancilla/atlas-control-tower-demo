@@ -84,7 +84,7 @@ class Database:
         return self.events
 
 
-def test_timeline_and_reliability_use_node_compatible_read_aggregations():
+def test_timeline_and_reliability_use_canonical_read_aggregations():
     db = Database()
     profile = get_profile("retail")
     events = asyncio.run(timeline(db, profile))

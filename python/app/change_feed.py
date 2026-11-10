@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from .config import redact
 
 
-WATCHED_COLLECTIONS = ("operational_events", "exceptions", "data_quality_issues", "execution_outbox", "tracked_entities", "telemetry_rollups", "demo_state")
+WATCHED_COLLECTIONS = ("operational_events", "exceptions", "data_quality_issues", "execution_outbox", "tracked_entities", "demo_state")
 NON_RESUMABLE_CODES = frozenset({260, 280, 286})
 
 

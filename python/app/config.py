@@ -39,17 +39,6 @@ def assert_demo_db_name(name: str) -> str:
     return name
 
 
-def boolean_env(env: dict[str, str], name: str, *, default: bool = False) -> bool:
-    value = env.get(name)
-    if value is None:
-        return default
-    if value.lower() in {"1", "true", "yes"}:
-        return True
-    if value.lower() in {"0", "false", "no"}:
-        return False
-    raise ConfigError(f'{name} must be true or false. Got "{value}".')
-
-
 def allowed_hosts_env(env: dict[str, str]) -> frozenset[str]:
     values = {value.strip().lower() for value in env.get("ALLOWED_HOSTS", "").split(",") if value.strip()}
     invalid = sorted(value for value in values if not _ALLOWED_HOST_PATTERN.fullmatch(value))
@@ -67,7 +56,6 @@ class Settings:
     port: int = 8000
     admin_token: str | None = None
     allowed_hosts: frozenset[str] = DEFAULT_ALLOWED_HOSTS
-    stream_processing_enabled: bool = False
 
     @property
     def target(self) -> str:
@@ -89,11 +77,9 @@ class Settings:
             db_name=assert_demo_db_name(env.get("DEMO_DB_NAME", "atlas_control_tower_demo")),
             default_profile=profile,
             host=env.get("HOST", "0.0.0.0"),
-            # Keep the parallel FastAPI service off the Node reference app's PORT=3000.
             port=int(env.get("PYTHON_PORT", "8000")),
             admin_token=env.get("ADMIN_TOKEN") or None,
             allowed_hosts=allowed_hosts_env(env),
-            stream_processing_enabled=boolean_env(env, "ASP_TELEMETRY_ENABLED"),
         )
 
 
