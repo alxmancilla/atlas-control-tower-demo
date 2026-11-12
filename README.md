@@ -130,6 +130,9 @@ Run these from the project root:
 | `uv run --env-file .env control-tower reanchor` | Shift synthetic timestamps to now without deleting activity. |
 | `uv run --env-file .env control-tower reset --confirm <demo-db-name>` | Destructively recreate the synthetic demo database. |
 | `uv run --env-file .env control-tower search-status` | Check whether Search and similar-case lookup are queryable. |
+| `uv run --env-file .env control-tower search-create` | Request any missing Atlas Search and vector indexes (for example after a setup run with `--without-search`). |
+
+Add `--without-search` to `setup` or `reset` to skip creating Search indexes.
 
 Search can take a short time to become queryable after first setup or a reset. The main operational story works while it is building.
 
