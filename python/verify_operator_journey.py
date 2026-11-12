@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 from pymongo import AsyncMongoClient
 
 from app.config import Settings, assert_demo_db_name
+from app.db import COLLECTIONS
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -77,7 +78,7 @@ def wait_for_server(base_url: str, admin_token: str | None) -> dict:
     raise RuntimeError("FastAPI server did not become ready") from last_error
 
 
-def verify(base_url: str, admin_token: str | None) -> None:
+def verify(base_url: str, admin_token: str | None, before_reanchor=None) -> None:
     status = require(*call(base_url, "GET", "/api/status", admin_token=admin_token))
     if not status.get("connected") or not status.get("init", {}).get("initialized"):
         raise RuntimeError("Temporary database did not initialize")
@@ -112,6 +113,8 @@ def verify(base_url: str, admin_token: str | None) -> None:
     overview = require(*call(base_url, "GET", f"/api/overview{query}", admin_token=admin_token))
     if overview.get("businessImpact", {}).get("level") != "none":
         raise RuntimeError("Receipt did not refresh business impact to none")
+    if before_reanchor:
+        before_reanchor()
     reanchored = require(*call(base_url, "POST", "/api/reanchor", {}, admin_token))
     if not any(item.get("profile") == profile and "businessImpact" in item for item in reanchored.get("profiles", [])):
         raise RuntimeError("Re-anchor did not report refreshed retail business impact")
@@ -138,6 +141,15 @@ async def drop_database(settings: Settings) -> None:
         await client.close()
 
 
+async def age_demo_anchor(settings: Settings, profile: str = "retail", minutes: int = 60) -> None:
+    # Re-anchor skips data seeded less than a minute ago, so age the disposable anchor first.
+    client = AsyncMongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=15_000)
+    try:
+        await client[settings.db_name][COLLECTIONS["entities"]].update_many({"profile": profile, "anchorAt": {"$type": "date"}}, [{"$set": {"anchorAt": {"$dateSubtract": {"startDate": "$anchorAt", "unit": "minute", "amount": minutes}}}}])
+    finally:
+        await client.close()
+
+
 def main(argv: list[str] | None = None) -> None:
     args = arguments(argv)
     base_settings = Settings.from_env()
@@ -151,7 +163,7 @@ def main(argv: list[str] | None = None) -> None:
         subprocess.run([sys.executable, "-m", "app.cli", "setup"], cwd=ROOT / "python", env=environment, check=True, stdout=subprocess.DEVNULL)
         server = subprocess.Popen([sys.executable, "-m", "app.run"], cwd=ROOT / "python", env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait_for_server(f"http://127.0.0.1:{args.port}", settings.admin_token)
-        verify(f"http://127.0.0.1:{args.port}", settings.admin_token)
+        verify(f"http://127.0.0.1:{args.port}", settings.admin_token, before_reanchor=lambda: asyncio.run(age_demo_anchor(settings)))
         print("operator journey verified; temporary database will be removed")
     except BaseException:
         failed = True
