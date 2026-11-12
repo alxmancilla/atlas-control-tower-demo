@@ -41,7 +41,7 @@ uv run --env-file ../.env control-tower setup
 uv run --env-file ../.env python -m app.run
 ```
 
-Open <http://localhost:8000>.
+Open <http://localhost:8000>. Enter your name in **Acting as** once, and click **▶ Guided demo** to see the operator story step by step for the selected scenario. You can also open <http://localhost:8000/?guide> to start with the guide already open.
 
 The default network binding is `0.0.0.0`, so every write is protected by the configured admin token. For local-only use, set `HOST=127.0.0.1` in `.env`.
 
