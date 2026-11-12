@@ -1,21 +1,10 @@
-# Ignore an existing local development certificate; never commit it.
-broker.crt
-node_modules/
+# Local secrets and generated files.
 python/.venv/
 *.egg-info/
 __pycache__/
+.pytest_cache/
 .env
 .env.*
 !.env.example
 .DS_Store
 .local/
-
-# Terraform working files, state, crash artifacts, and real variable files may hold
-# cloud resource metadata and sensitive credentials.
-**/.terraform/*
-*.tfstate
-*.tfstate.*
-crash.log
-crash.*.log
-*.tfvars
-!*.tfvars.example
