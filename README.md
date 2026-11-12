@@ -33,7 +33,7 @@ Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/), and a **non-produ
 
 ```bash
 cp .env.example .env
-# Set MONGODB_URI and a private ADMIN_TOKEN in .env.
+# Set MONGODB_URI in .env. HOST=127.0.0.1 keeps the dashboard local-only.
 
 cd python
 uv sync
@@ -43,7 +43,7 @@ uv run --env-file ../.env python -m app.run
 
 Open <http://localhost:8000>. Enter your name in **Acting as** once, and click **▶ Guided demo** to see the operator story step by step for the selected scenario. You can also open <http://localhost:8000/?guide> to start with the guide already open.
 
-The default network binding is `0.0.0.0`, so every write is protected by the configured admin token. For local-only use, set `HOST=127.0.0.1` in `.env`.
+With `HOST=127.0.0.1` the dashboard is reachable only from your machine, and no admin token is needed. To share it on the network, set `HOST=0.0.0.0` and a private `ADMIN_TOKEN`; the app refuses to start on a network address without one, and the browser asks for the token once per tab.
 
 ### 2. Start fresh before a presentation
 
@@ -56,21 +56,50 @@ uv run --env-file ../.env control-tower reset --confirm atlas_control_tower_demo
 
 Replace `atlas_control_tower_demo` with the exact value of `DEMO_DB_NAME` when you use a different demo database. The name must contain `demo` as a safety guard.
 
-If the demo has been left running for a while, use **Re-anchor demo clock** in the dashboard header. It preserves records while shifting synthetic timestamps and regenerating telemetry so the scenario is current again.
+If the demo has been left running for a while, use **Reset scenario time** in the dashboard header. It preserves records while shifting synthetic timestamps and regenerating telemetry so the scenario is current again.
 
-## A 10-minute retail demonstration
+## Running the guided demo
+
+The **▶ Guided demo** panel walks through the six steps of the operator story for whichever scenario is selected. It works the same way for Retail, Healthcare, and Manufacturing.
+
+- Click each step's button **once**. While a step runs (about two seconds), its button shows "Working…" and ignores further clicks.
+- **Step 2** (Show business impact) only scrolls to the overview; it changes no data.
+- **Step 5** (Advance handoff) takes **three clicks**: submitted → acknowledged → reconciled.
+- **Step 3** opens the highest-priority exception, which may not be the one triggered in step 1. In Retail it is *Missed pickup* (SLA already breached), not the delivery delay — a useful point: the most urgent work comes first.
+- Guide progress lives in the browser tab. Reloading restarts the guide but keeps the data; repeated events are deduplicated and already-decided recommendations are skipped.
+- After "Story complete", run `reset` (see above) before the next audience.
+
+The dashboard is split into three tabs: **Operator view** (the story), **Data & reliability** (KPIs, event reliability, data-quality queue, telemetry, search), and **Admin** (schema validation).
+
+## How the exception queue is ranked
+
+Each open exception gets a transparent priority score, shown with its reasons in the **Priority** column:
+
+| Factor | Points |
+| --- | --- |
+| Severity | critical 50, high 35, medium 20, low 10 |
+| SLA | +40 if breached; +25 if due soon (Retail 60 min, Healthcare 30 min, Manufacturing 45 min) |
+| Category impact | impact level × 5 (Retail) or × 6 (Healthcare, Manufacturing) |
+| Business impact | critical +30, high +20, watch +5 |
+| Already acknowledged | −5 |
+
+Resolved exceptions sink to the bottom; equal scores are ordered by the nearest SLA. The weights live in `python/app/profiles.py`.
+
+## A 10-minute retail demonstration (manual)
+
+Use this path instead of the guided panel when you want more freedom. Everything below is on the **Operator view** tab unless stated otherwise.
 
 1. Select **Retail** and open **Cross-domain disruption trace**.
    - Tell the supplier → DC → shipment → store-promotion story.
 2. Show **Operational overview** and **Active load portfolio**.
    - Explain the difference between schedule risk and current business impact.
-3. In **Sample event flow**, select **Carrier: ETA slip alert**.
+3. In **Simulate incoming events**, select **Carrier: ETA slip alert**.
    - Show the delivery-delay exception, per-store shortfall, and expedite recommendation.
 4. Open the exception and accept the recommendation.
    - Show the decision audit trail and the simulated **Governed execution handoff**.
 5. Progress the handoff from `pending` to `submitted`, `acknowledged`, and `reconciled`.
    - Emphasize that this is a simulation; no external system is contacted.
-6. Search for `traffic`, `carrier`, or `berries`.
+6. On the **Data & reliability** tab, search for `traffic`, `carrier`, or `berries`.
    - Connect the operational record to related event and exception context.
 7. Optional close: select **Store: received**.
    - Business impact clears because supply arrived; the late schedule history remains visible.
@@ -78,19 +107,19 @@ If the demo has been left running for a while, use **Re-anchor demo clock** in t
 ## Optional supporting moments
 
 - **Event reliability:** submit *Carrier: arrived at cross-dock*, then *Carrier: resend arrival (duplicate)* to show duplicate suppression.
-- **Data stewardship:** submit the supplier missing-correlation sample, then acknowledge or resolve the resulting quality work item.
+- **Data stewardship:** submit the supplier missing-correlation sample, then acknowledge or resolve the resulting quality work item on the **Data & reliability** tab.
 - **Telemetry:** add an excursion to show a range breach and moving average.
-- **Schema validation:** use the fixed invalid samples to move from observation to enforcement without touching real data.
+- **Schema validation:** on the **Admin** tab, use the fixed invalid samples to move from observation to enforcement without touching real data.
 - **Similar cases:** once Search is ready, inspect a resolved synthetic exception for a comparable prior outcome.
 
 ## What the demo proves
 
 - Multi-stop impact is explained in business terms: projected arrival, hours of cover, shortfall, and affected destinations.
-- Exceptions are deduplicated, prioritized, assigned, resolved, and audited.
+- Exceptions are deduplicated, ranked by a transparent priority score, assigned, resolved, and audited.
 - Recommendations support an operator decision; they do not automate external actions.
 - Quality problems are handled as separate, auditable work rather than silently changing upstream data.
 - The portfolio separates the primary interactive scenario from clearly labelled synthetic context loads.
-- The dashboard stays live as events, exceptions, and handoffs change.
+- The dashboard stays live as events, exceptions, and handoffs change, using MongoDB Change Streams — no separate streaming or messaging layer is required.
 
 ## Operational commands
 
@@ -120,6 +149,6 @@ The first command is the local test suite. The second is an opt-in Atlas smoke t
 
 ## Technical reference
 
-The Python/FastAPI application is the only runtime. For endpoints, API behavior, data model details, Atlas capability notes, and security controls, see [`python/README.md`](python/README.md).
+The Python/FastAPI application is the only runtime; the earlier Node.js runtime and the optional Atlas Stream Processing / Kafka telemetry tooling have been retired. For endpoints, API behavior, data model details, Atlas capability notes, and security controls, see [`python/README.md`](python/README.md).
 
 Connection strings and tokens are never logged. Keep `.env` private and use this project only with a non-production database.

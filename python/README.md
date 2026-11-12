@@ -10,7 +10,7 @@ From this directory, use the root `.env` without copying its credentials:
 
 Use `uv run --env-file ../.env control-tower setup` to provision the non-production database, `control-tower search-status` to inspect Atlas Search readiness, and `control-tower reset --confirm <demo-database-name>` for an explicitly confirmed reset.
 
-The Python service defaults to `0.0.0.0:8000`; set `HOST` or `PYTHON_PORT` to override it. Because the default binds to the network, set `ADMIN_TOKEN` before starting it. Loopback hosts are allowed by default; add a LAN hostname or IP address (without a port) to `ALLOWED_HOSTS` before using the dashboard from another device. It enforces Atlas-only and demo-database-name guards. The browser page is deliberately small: its stylesheet is served from `app/static/dashboard.css`, while the page keeps the interaction code next to the DOM contract in `app/static/index.html`. Dynamic operational values remain HTML-escaped before rendering.
+The Python service defaults to `0.0.0.0:8000`; set `HOST` or `PYTHON_PORT` to override it (`PORT` is not read). The provided `.env.example` sets `HOST=127.0.0.1`, which keeps the dashboard local-only and needs no admin token. When `HOST` is a network address, set `ADMIN_TOKEN` before starting; the service refuses to start without it. `GET /api/status` reports `adminTokenRequired`, and the dashboard only prompts for a token when it is `true`. Loopback hosts are allowed by default; add a LAN hostname or IP address (without a port) to `ALLOWED_HOSTS` before using the dashboard from another device. It enforces Atlas-only and demo-database-name guards. The browser page is deliberately small: its stylesheet is served from `app/static/dashboard.css`, while the page keeps the interaction code next to the DOM contract in `app/static/index.html`. Dynamic operational values remain HTML-escaped before rendering.
 
 ## Opt-in live operator verification
 
@@ -18,7 +18,7 @@ The ordinary Python tests do not contact Atlas. For a complete isolated journey,
 
 `uv run --env-file ../.env python verify_operator_journey.py --database atlas_control_tower_demo_operator_verify --confirm-cleanup atlas_control_tower_demo_operator_verify`
 
-The verifier uses the Python administration CLI to seed the temporary database, starts FastAPI on port `8011`, and checks initialization, event deduplication, receipt-driven impact refresh, recommendation acceptance and the simulated outbox lifecycle, re-anchoring, telemetry, and observe/enforce schema validation. It then stops the server and removes the temporary database even when a check fails. It does not accept or print credentials.
+The verifier uses the Python administration CLI to seed the temporary database, starts FastAPI on port `8011`, and checks initialization, event deduplication, receipt-driven impact refresh, recommendation acceptance and the simulated outbox lifecycle, re-anchoring, telemetry, and observe/enforce schema validation. Because re-anchoring skips data seeded less than a minute earlier, the verifier first moves the temporary database's retail anchor back one hour. It then stops the server and removes the temporary database even when a check fails. It does not accept or print credentials.
 
 ## Implemented endpoints
 
@@ -39,7 +39,7 @@ The verifier uses the Python administration CLI to seed the temporary database, 
 - `GET /api/telemetry?profile=retail[&hours=8&min=1&max=4]`
 - `GET /api/search/status`
 - `GET /api/search?q=traffic&profile=retail`
-- `GET /api/exceptions?profile=retail`
+- `GET /api/exceptions?profile=retail` (queue ranked by a per-profile priority score; each item includes `priority.score`, `priority.reasons`, and `priority.minutesToSla`)
 - `GET /api/exceptions/{exceptionId}/similar`
 - `POST /api/events?profile=retail`
 - `POST /api/events/sample?profile=retail` (`{"sampleId":"arrived_dc"}`)
