@@ -39,7 +39,7 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
         dashboard = test_client.get("/")
         page = dashboard.text
         stylesheet = test_client.get("/static/dashboard.css")
-    for label in ("Operational overview", "Milestone risk", "Event reliability", "Data-quality queue", "Cross-domain disruption trace", "Exception workflow", "Governed execution handoff", "Active load portfolio", "Control tower KPIs", "Schema validation"):
+    for label in ("Operational overview", "Milestone risk", "Event reliability", "Data-quality queue", "Cross-domain disruption trace", "Exception workflow", "Governed execution handoff", "Active load portfolio", "Control tower KPIs", "Schema governance", "Pre-flight checklist"):
         assert label in page
     assert "data-exception-action" in page
     assert "data-recommendation" in page
@@ -58,7 +58,7 @@ def test_dashboard_exposes_structured_operational_panels_and_guarded_actions():
     assert "bounded linked operational context" in page
     assert "data-execution-action" in page
     assert "/api/execution-outbox" in page
-    assert "Re-anchor demo clock" in page
+    assert "Reset scenario time" in page
     assert "window.confirm" in page
     assert "'/api/reanchor'" in page
 

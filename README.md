@@ -54,7 +54,7 @@ uv run --env-file .env control-tower reset --confirm atlas_control_tower_demo
 
 Replace `atlas_control_tower_demo` with the exact value of `DEMO_DB_NAME` when you use a different demo database. The name must contain `demo` as a safety guard.
 
-If the demo has been left running for a while, use **Reset scenario time** in the dashboard header. It preserves records while shifting synthetic timestamps and regenerating telemetry so the scenario is current again.
+Before presenting, open the **Demo setup** tab. Its pre-flight checklist confirms that Atlas is connected, the demo is seeded, live updates are running, Search is ready, and no scenario has been used since the last reset; when something needs attention it shows the fix, including the exact `reset` command for your database. If the demo has been left running for a while, use **Reset scenario time** on that tab. It preserves records while shifting synthetic timestamps and regenerating telemetry so the scenario is current again.
 
 ## Running the guided demo
 
@@ -67,7 +67,7 @@ The **▶ Guided demo** panel walks through the six steps of the operator story 
 - Guide progress lives in the browser tab. Reloading restarts the guide but keeps the data; repeated events are deduplicated and already-decided recommendations are skipped.
 - After "Story complete", run `reset` (see above) before the next audience.
 
-The dashboard is split into three tabs: **Operator view** (the story), **Data & reliability** (KPIs, event reliability, data-quality queue, telemetry, search), and **Admin** (schema validation).
+The dashboard is split into three tabs: **Operator view** (the story), **Data & reliability** (KPIs, event reliability, data-quality queue, telemetry, search, schema governance), and **Demo setup** (presenter-only pre-flight checklist and scenario-time reset).
 
 ## How the exception queue is ranked
 
@@ -107,7 +107,7 @@ Use this path instead of the guided panel when you want more freedom. Everything
 - **Event reliability:** submit *Carrier: arrived at cross-dock*, then *Carrier: resend arrival (duplicate)* to show duplicate suppression.
 - **Data stewardship:** submit the supplier missing-correlation sample, then acknowledge or resolve the resulting quality work item on the **Data & reliability** tab.
 - **Telemetry:** add an excursion to show a range breach and moving average.
-- **Schema validation:** on the **Admin** tab, use the fixed invalid samples to move from observation to enforcement without touching real data.
+- **Schema governance:** on the **Data & reliability** tab, follow the four on-screen steps — accept a legacy document, observe, repair, enforce — to show flexible intake becoming governed data without touching real data.
 - **Similar cases:** once Search is ready, inspect a resolved synthetic exception for a comparable prior outcome.
 
 ## What the demo proves
