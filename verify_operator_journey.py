@@ -21,7 +21,7 @@ from app.config import Settings, assert_demo_db_name
 from app.db import COLLECTIONS
 
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent
 VERIFY_SUFFIX = "_operator_verify"
 
 
@@ -160,8 +160,8 @@ def main(argv: list[str] | None = None) -> None:
     try:
         import asyncio
         asyncio.run(drop_database(settings))
-        subprocess.run([sys.executable, "-m", "app.cli", "setup"], cwd=ROOT / "python", env=environment, check=True, stdout=subprocess.DEVNULL)
-        server = subprocess.Popen([sys.executable, "-m", "app.run"], cwd=ROOT / "python", env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([sys.executable, "-m", "app.cli", "setup"], cwd=ROOT, env=environment, check=True, stdout=subprocess.DEVNULL)
+        server = subprocess.Popen([sys.executable, "-m", "app.run"], cwd=ROOT, env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait_for_server(f"http://127.0.0.1:{args.port}", settings.admin_token)
         verify(f"http://127.0.0.1:{args.port}", settings.admin_token, before_reanchor=lambda: asyncio.run(age_demo_anchor(settings)))
         print("operator journey verified; temporary database will be removed")

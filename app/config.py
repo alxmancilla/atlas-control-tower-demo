@@ -66,7 +66,7 @@ class Settings:
         env = os.environ if env is None else env
         uri = env.get("MONGODB_URI")
         if not uri and require_uri:
-            raise ConfigError("MONGODB_URI is not set. Copy ../.env.example to ../.env and add your Atlas connection string.")
+            raise ConfigError("MONGODB_URI is not set. Copy .env.example to .env and add your Atlas connection string.")
         if uri and not is_atlas_host(uri):
             raise ConfigError(f"MONGODB_URI must point to a MongoDB Atlas cluster (*.mongodb.net). Got target {target_label(uri)}.")
         profile = env.get("DEMO_PROFILE", "retail")

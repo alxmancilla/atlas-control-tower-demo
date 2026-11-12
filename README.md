@@ -35,10 +35,9 @@ Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/), and a **non-produ
 cp .env.example .env
 # Set MONGODB_URI in .env. HOST=127.0.0.1 keeps the dashboard local-only.
 
-cd python
 uv sync
-uv run --env-file ../.env control-tower setup
-uv run --env-file ../.env python -m app.run
+uv run --env-file .env control-tower setup
+uv run --env-file .env python -m app.run
 ```
 
 Open <http://localhost:8000>. Enter your name in **Acting as** once, and click **▶ Guided demo** to see the operator story step by step for the selected scenario. You can also open <http://localhost:8000/?guide> to start with the guide already open.
@@ -50,8 +49,7 @@ With `HOST=127.0.0.1` the dashboard is reachable only from your machine, and no 
 `reset` is destructive: it removes the current synthetic events, decisions, handoffs, telemetry, and demo work items, then recreates the three seeded scenarios.
 
 ```bash
-cd python
-uv run --env-file ../.env control-tower reset --confirm atlas_control_tower_demo
+uv run --env-file .env control-tower reset --confirm atlas_control_tower_demo
 ```
 
 Replace `atlas_control_tower_demo` with the exact value of `DEMO_DB_NAME` when you use a different demo database. The name must contain `demo` as a safety guard.
@@ -83,7 +81,7 @@ Each open exception gets a transparent priority score, shown with its reasons in
 | Business impact | critical +30, high +20, watch +5 |
 | Already acknowledged | −5 |
 
-Resolved exceptions sink to the bottom; equal scores are ordered by the nearest SLA. The weights live in `python/app/profiles.py`.
+Resolved exceptions sink to the bottom; equal scores are ordered by the nearest SLA. The weights live in `app/profiles.py`.
 
 ## A 10-minute retail demonstration (manual)
 
@@ -123,24 +121,23 @@ Use this path instead of the guided panel when you want more freedom. Everything
 
 ## Operational commands
 
-Run these from `python/`:
+Run these from the project root:
 
 | Command | Purpose |
 | --- | --- |
-| `uv run --env-file ../.env control-tower setup` | Create missing demo collections, indexes, and seed data without overwriting existing demo activity. |
-| `uv run --env-file ../.env control-tower check` | Check initialization, Search readiness, and validation state. |
-| `uv run --env-file ../.env control-tower reanchor` | Shift synthetic timestamps to now without deleting activity. |
-| `uv run --env-file ../.env control-tower reset --confirm <demo-db-name>` | Destructively recreate the synthetic demo database. |
-| `uv run --env-file ../.env control-tower search-status` | Check whether Search and similar-case lookup are queryable. |
+| `uv run --env-file .env control-tower setup` | Create missing demo collections, indexes, and seed data without overwriting existing demo activity. |
+| `uv run --env-file .env control-tower check` | Check initialization, Search readiness, and validation state. |
+| `uv run --env-file .env control-tower reanchor` | Shift synthetic timestamps to now without deleting activity. |
+| `uv run --env-file .env control-tower reset --confirm <demo-db-name>` | Destructively recreate the synthetic demo database. |
+| `uv run --env-file .env control-tower search-status` | Check whether Search and similar-case lookup are queryable. |
 
 Search can take a short time to become queryable after first setup or a reset. The main operational story works while it is building.
 
 ## Verification
 
 ```bash
-cd python
 uv run pytest
-uv run --env-file ../.env python verify_operator_journey.py \
+uv run --env-file .env python verify_operator_journey.py \
   --database atlas_control_tower_demo_operator_verify \
   --confirm-cleanup atlas_control_tower_demo_operator_verify
 ```
@@ -149,6 +146,6 @@ The first command is the local test suite. The second is an opt-in Atlas smoke t
 
 ## Technical reference
 
-The Python/FastAPI application is the only runtime; the earlier Node.js runtime and the optional Atlas Stream Processing / Kafka telemetry tooling have been retired. For endpoints, API behavior, data model details, Atlas capability notes, and security controls, see [`python/README.md`](python/README.md).
+The Python/FastAPI application is the only runtime; the earlier Node.js runtime and the optional Atlas Stream Processing / Kafka telemetry tooling have been retired. For endpoints, API behavior, data model details, Atlas capability notes, and security controls, see [`TECHNICAL.md`](TECHNICAL.md).
 
 Connection strings and tokens are never logged. Keep `.env` private and use this project only with a non-production database.
