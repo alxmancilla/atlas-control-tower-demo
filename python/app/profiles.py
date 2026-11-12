@@ -87,6 +87,7 @@ class Profile:
     legacy_references: tuple[str, ...] = ()
     source_contracts: dict[str, dict[str, object]] = field(default_factory=dict)
     impact: dict[str, object] = field(default_factory=dict)
+    priority: dict[str, object] = field(default_factory=dict)
 
     def public(self) -> dict[str, object]:
         return {
@@ -181,8 +182,15 @@ _INVALID_SAMPLES = {
 
 _LEGACY_REFERENCES = {"retail": ("RO-77821",), "healthcare": ("TO-55021",), "manufacturing": ("PO-44190",)}
 
+_PRIORITY_BASE = {"severityPoints": {"critical": 50, "high": 35, "medium": 20, "low": 10}, "slaBreachedPoints": 40, "slaSoonPoints": 25, "acknowledgedPoints": -5, "businessImpactPoints": {"critical": 30, "high": 20, "watch": 5, "none": 0}}
+_PRIORITY = {
+    "retail": {**_PRIORITY_BASE, "slaSoonMin": 60, "impactPointsPerLevel": 5},
+    "healthcare": {**_PRIORITY_BASE, "slaSoonMin": 30, "impactPointsPerLevel": 6},
+    "manufacturing": {**_PRIORITY_BASE, "slaSoonMin": 45, "impactPointsPerLevel": 6},
+}
+
 PROFILES = {
-    profile_id: replace(profile, telemetry=_TELEMETRY[profile_id], samples=_SAMPLES[profile_id], invalid_samples=_INVALID_SAMPLES[profile_id], legacy_references=_LEGACY_REFERENCES[profile_id], source_contracts=_SOURCE_CONTRACTS[profile_id], impact=_IMPACT[profile_id])
+    profile_id: replace(profile, telemetry=_TELEMETRY[profile_id], samples=_SAMPLES[profile_id], invalid_samples=_INVALID_SAMPLES[profile_id], legacy_references=_LEGACY_REFERENCES[profile_id], source_contracts=_SOURCE_CONTRACTS[profile_id], impact=_IMPACT[profile_id], priority=_PRIORITY[profile_id])
     for profile_id, profile in PROFILES.items()
 }
 

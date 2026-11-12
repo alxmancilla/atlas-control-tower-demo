@@ -135,6 +135,48 @@ async def decide_recommended_action(db, exception_id: str, payload: dict) -> dic
         return await session.with_transaction(lambda inner_session: apply(inner_session))
 
 
-async def exception_queue(db, profile: Profile) -> list[dict]:
-    cursor = db[COLLECTIONS["exceptions"]].find({"profile": profile.id, "trackedEntityId": profile.entity_id}).sort([("status", 1), ("slaDueAt", 1)])
-    return [json_safe(item) async for item in cursor]
+_STATUS_ORDER = {"open": 0, "acknowledged": 1, "resolved": 2}
+
+
+def _utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def prioritize_exception(exception: dict, now: datetime, rules: dict) -> dict:
+    if exception.get("status") == "resolved":
+        return {"score": 0, "reasons": ["Resolved"], "minutesToSla": None}
+    severity = exception.get("severity")
+    severity_points = rules["severityPoints"].get(severity, 0)
+    score, reasons = severity_points, [f"{severity} severity +{severity_points}"]
+    due = exception.get("slaDueAt")
+    minutes_to_sla = round((_utc(due) - now).total_seconds() / 60) if isinstance(due, datetime) else None
+    if minutes_to_sla is not None and minutes_to_sla < 0:
+        score += rules["slaBreachedPoints"]
+        reasons.append(f"SLA breached {-minutes_to_sla} min ago +{rules['slaBreachedPoints']}")
+    elif minutes_to_sla is not None and minutes_to_sla <= rules["slaSoonMin"]:
+        score += rules["slaSoonPoints"]
+        reasons.append(f"SLA due in {minutes_to_sla} min +{rules['slaSoonPoints']}")
+    impact_points = (exception.get("impact") or 0) * rules["impactPointsPerLevel"]
+    score += impact_points
+    reasons.append(f"impact level {exception.get('impact') or 0} +{impact_points}")
+    level = (exception.get("businessImpact") or {}).get("level")
+    business_points = rules["businessImpactPoints"].get(level, 0) if level else 0
+    if business_points:
+        score += business_points
+        reasons.append(f"business impact {level} +{business_points}")
+    if exception.get("status") == "acknowledged":
+        score += rules["acknowledgedPoints"]
+        reasons.append(f"acknowledged {rules['acknowledgedPoints']}")
+    return {"score": score, "reasons": reasons, "minutesToSla": minutes_to_sla}
+
+
+def build_queue(exceptions: list[dict], now: datetime, rules: dict) -> list[dict]:
+    far_future = datetime.max.replace(tzinfo=timezone.utc)
+    ranked = [{**item, "priority": prioritize_exception(item, now, rules)} for item in exceptions]
+    return sorted(ranked, key=lambda item: (item.get("status") == "resolved", -item["priority"]["score"], _utc(item["slaDueAt"]) if isinstance(item.get("slaDueAt"), datetime) else far_future, _STATUS_ORDER.get(item.get("status"), 3)))
+
+
+async def exception_queue(db, profile: Profile, now: datetime | None = None) -> list[dict]:
+    cursor = db[COLLECTIONS["exceptions"]].find({"profile": profile.id, "trackedEntityId": profile.entity_id})
+    items = [item async for item in cursor]
+    return [json_safe(item) for item in build_queue(items, now or datetime.now(timezone.utc), profile.priority)]
